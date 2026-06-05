@@ -261,6 +261,12 @@ services:
       - ${ROBOCO_DATA_DIR:-./data}/logs:/data/logs
       # Per-agent SessionStart briefings (pre-rendered task context)
       - ${ROBOCO_DATA_DIR:-./data}/briefings:/app/briefings
+      # Per-agent spawn manifests (role-scoped tool list) — written by the
+      # orchestrator to /app/manifests, bind-mounted into each agent container
+      # as /app/tool-manifest.json. Without this mount the file is written to
+      # the orchestrator's ephemeral fs, never reaches the host, and agents
+      # fall back to all-verbs registration.
+      - ${ROBOCO_DATA_DIR:-./data}/manifests:/app/manifests
     depends_on:
       postgres:
         condition: service_healthy
@@ -304,8 +310,16 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
+    environment:
+      # Rendered into the proxy config by the nginx image's envsubst
+      # entrypoint so the human panel authenticates in secure mode. The
+      # filter limits substitution to ROBOCO_* vars, leaving nginx's own
+      # $host / $remote_addr runtime variables untouched. Get the value
+      # with `make panel-token`.
+      ROBOCO_PANEL_AGENT_TOKEN: ${ROBOCO_PANEL_AGENT_TOKEN:-}
+      NGINX_ENVSUBST_FILTER: "^ROBOCO_"
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/nginx.conf:/etc/nginx/templates/default.conf.template:ro
     depends_on:
       - panel
       - orchestrator

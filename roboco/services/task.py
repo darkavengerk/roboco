@@ -407,22 +407,44 @@ class TaskService(BaseService):
                 error=str(e),
             )
 
-        # Fire-and-forget audit write. Critical: we must hold a strong
-        # reference to the Task object (via `_background_tasks`) — the event
-        # loop only weak-refs tasks, so without this the audit write can be
-        # garbage-collected before it commits. That's why audit_log was
-        # coming up empty even though the log call ran.
+        self._emit_status_transition_audit(
+            task,
+            from_status=current,
+            to_status=target,
+            agent_role=agent_role,
+            audit_agent_id=audit_agent_id,
+        )
+
+    def _emit_status_transition_audit(
+        self,
+        task: TaskTable,
+        *,
+        from_status: str,
+        to_status: str,
+        agent_role: str | None,
+        audit_agent_id: str | UUID | None,
+    ) -> None:
+        """Emit the ``task.<status>`` audit row for a status transition.
+
+        Extracted from ``_validate_and_set_status`` so transition paths that
+        set ``task.status`` directly — e.g. ``apply_escalation``, which blocks a
+        task without routing through the strict transition validator — record
+        the same audit event. No status change may bypass the audit log.
+
+        Fire-and-forget, but we hold a strong reference to the background task
+        (via ``_background_tasks``): the event loop only weak-refs tasks, so
+        without it the audit write can be garbage-collected before it commits.
+
+        The explicit ``audit_agent_id`` (capture-before-mutate) wins: callers
+        like ``submit_for_qa`` clear ``task.claimed_by`` before transitioning
+        but still want the row attributed to the outgoing agent. Otherwise fall
+        back to ``task.claimed_by``.
+        """
         import asyncio
         import contextlib
 
         from roboco.services.audit import get_audit_service
 
-        # Prefer the explicit `audit_agent_id` when the caller passed one
-        # (capture-before-mutate pattern: callers like `submit_for_qa` and
-        # `pass_qa` clear `task.claimed_by` BEFORE calling us so the next
-        # role can claim, but still want the audit row attributed to the
-        # outgoing agent). Fall back to `task.claimed_by` for transitions
-        # where the assignment didn't change (claim, start_work, etc.).
         if audit_agent_id is not None:
             resolved_audit_agent_id: str | None = str(audit_agent_id)
         elif task.claimed_by is not None:
@@ -434,12 +456,12 @@ class TaskService(BaseService):
         with contextlib.suppress(RuntimeError):
             bg = asyncio.get_running_loop().create_task(
                 audit.log_task_event(
-                    event_type=f"task.{target}",
+                    event_type=f"task.{to_status}",
                     task_id=str(task.id),
                     agent_id=resolved_audit_agent_id,
                     details={
-                        "from_status": current,
-                        "to_status": target,
+                        "from_status": from_status,
+                        "to_status": to_status,
                         "agent_role": agent_role,
                         "team": (
                             task.team.value
@@ -1697,13 +1719,33 @@ class TaskService(BaseService):
                 error=str(e),
             )
 
+    @staticmethod
+    def _resolve_doc_abspath(rel_path: str) -> str:
+        """Resolve a documenter-supplied doc path to its on-disk absolute path.
+
+        Docs live under ``DOCS_BASE_PATH`` (``/app/docs``). Agents sometimes
+        hand a path already rooted at ``docs/`` (or an absolute path); joining
+        ``DOCS_BASE_PATH`` with a ``docs/``-prefixed relative path doubles the
+        segment (``/app/docs/docs/...``), so the file is never found and the
+        docs never index into RAG. Normalize: trust an absolute path; otherwise
+        strip a single redundant leading ``docs/`` before joining.
+        """
+        from pathlib import Path
+
+        from roboco.services.docs import DOCS_BASE_PATH
+
+        path = Path(rel_path)
+        if path.is_absolute():
+            return str(path)
+        parts = path.parts
+        if parts and parts[0] == DOCS_BASE_PATH.name:
+            path = Path(*parts[1:]) if len(parts) > 1 else Path()
+        return str(DOCS_BASE_PATH / path)
+
     async def _index_docs_background(
         self, task_id: UUID, documents: list[dict[str, Any]]
     ) -> None:
         """Index documentation from completed doc task (fire-and-forget)."""
-        from pathlib import Path
-
-        from roboco.services.docs import DOCS_BASE_PATH
         from roboco.services.optimal import get_optimal_service
 
         try:
@@ -1714,8 +1756,7 @@ class TaskService(BaseService):
             for d in documents:
                 rel_path = d.get("path")
                 if rel_path:
-                    absolute_path = str(DOCS_BASE_PATH / Path(rel_path))
-                    doc_paths.append(absolute_path)
+                    doc_paths.append(self._resolve_doc_abspath(rel_path))
 
             if doc_paths:
                 count = await optimal.index_documentation(doc_paths, project="roboco")
@@ -2074,24 +2115,65 @@ class TaskService(BaseService):
         ownership/role checks because the holder is provably dead (no
         heartbeat past TTL).
         """
+        await self._force_unclaim_to_pending(task_id, reason="reaper-unclaim")
+
+    async def release_dependency_blocked_claim(self, task_id: UUID) -> None:
+        """Release a claimed/in_progress task whose dependency is still unmet.
+
+        A task assigned with an unfinished dependency cannot proceed, but while
+        it sits claimed/in_progress the orchestrator keeps respawning its
+        assignee (the respawn loop targets only claimed/in_progress). Releasing
+        it to pending stops that churn: the dispatch dependency filter holds it
+        un-spawned, and ``_unblock_dependents`` clears the dependency once the
+        upstream completes so it re-dispatches on its own. ``claimed -> blocked``
+        is not a legal transition, so pending (held by the dependency filter) is
+        the lifecycle-correct resting state. No-op when not in a releasable state.
+
+        Also forgets ``branch_name`` so the eventual re-claim re-runs branch
+        creation and cuts the branch fresh off the current integration tip —
+        which by then includes the upstream's merged work — instead of reusing a
+        snapshot taken before the dependency landed. A dependency-blocked task
+        has done no work of its own, so nothing is lost; ``create_branch``
+        leaves any branch carrying real commits intact.
+        """
+        if not await self._force_unclaim_to_pending(task_id, reason="dependency-unmet"):
+            return
+        task = await self.get(task_id)
+        if task is not None and task.branch_name:
+            task.branch_name = None
+            await self.session.flush()
+
+    async def _force_unclaim_to_pending(self, task_id: UUID, *, reason: str) -> bool:
+        """Force a claimed/in_progress task back to pending (system action).
+
+        Shared core of ``unclaim_for_reaper`` and
+        ``release_dependency_blocked_claim``. Routes through
+        ``_validate_and_set_status`` so the state machine records the
+        transition, clears assignee/heartbeat/claimant, and abandons the active
+        WorkSession (best-effort, tagged with ``reason``) so a re-claim doesn't
+        trip the uniqueness constraint. Bypasses ownership/role checks — the
+        system itself is performing the transition. Returns True iff the task
+        was actually released (False when missing or not in a releasable state).
+        """
         task = await self.get(task_id)
         if task is None:
-            return
+            return False
         if task.status not in (TaskStatus.CLAIMED, TaskStatus.IN_PROGRESS):
-            return
+            return False
         try:
             self._validate_and_set_status(task, TaskStatus.PENDING, None)
         except TaskLifecycleError:
-            return
+            return False
         if task.work_session_id:
             await self._abandon_work_session_best_effort(
-                task.work_session_id, reason="reaper-unclaim"
+                task.work_session_id, reason=reason
             )
             task.work_session_id = cast("Any", None)
         task.assigned_to = cast("Any", None)
         task.last_heartbeat_at = None
         task.active_claimant_id = cast("Any", None)
         await self.session.flush()
+        return True
 
     async def _abandon_work_session_best_effort(
         self, session_id: Any, *, reason: str
@@ -3346,6 +3428,15 @@ class TaskService(BaseService):
             return
         if task.assigned_to and not task.blocker_raised_by:
             task.blocker_raised_by = cast("Any", task.assigned_to)
+        # Capture before mutating: the audit row must record the real prior
+        # status and attribute the block to the outgoing owner, not the
+        # escalation target we are about to assign.
+        pre_block_status = (
+            task.status.value
+            if isinstance(task.status, TaskStatus)
+            else str(task.status)
+        )
+        pre_block_owner = cast("Any", task.claimed_by)
         task.assigned_to = cast("Any", target_agent_id)
         task.claimed_by = cast("Any", target_agent_id)
         task.status = TaskStatus.BLOCKED
@@ -3355,6 +3446,16 @@ class TaskService(BaseService):
         )
         task.dev_notes = existing_notes + escalation_note
         await self.session.flush()
+        # This path sets BLOCKED directly (bypassing the strict transition
+        # validator), so emit the task.blocked audit explicitly — no status
+        # change may skip the audit log.
+        self._emit_status_transition_audit(
+            task,
+            from_status=pre_block_status,
+            to_status=TaskStatus.BLOCKED.value,
+            agent_role=None,
+            audit_agent_id=pre_block_owner,
+        )
         self.log.info(
             "Task escalated and blocked",
             task_id=str(task.id),
@@ -4251,6 +4352,23 @@ class TaskService(BaseService):
             return
         if depends_on_id not in task.dependency_ids:
             task.dependency_ids = [*task.dependency_ids, depends_on_id]
+            await self.session.flush()
+
+    async def set_sequence(self, task_id: UUID, sequence: int) -> None:
+        """Set a task's sibling-ordering sequence (lower = first).
+
+        `sequence` is a display / dispatch-priority field only — it orders
+        siblings in `list_pending`, `list_for_team`, and the panel and carries
+        no claim-gating semantics (dependencies gate claims). Cross-cell
+        fan-out uses it so an upstream design task sorts ahead of the
+        implementation tasks that depend on it. No-op if the task is gone or
+        already at `sequence`.
+        """
+        task = await self.get(task_id)
+        if task is None:
+            return
+        if task.sequence != sequence:
+            task.sequence = sequence
             await self.session.flush()
 
     async def unmet_dependency_ids(self, dependency_ids: list[UUID]) -> list[UUID]:

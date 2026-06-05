@@ -24,7 +24,6 @@ from roboco.services.gateway.choreographer._verb_runner import VerbRunner
 from roboco.services.gateway.claim_guards import (
     already_active_guard,
     paused_tasks_guard,
-    sibling_sequence_guard,
     unmet_dependency_guard,
 )
 from roboco.services.gateway.envelope import Envelope
@@ -704,7 +703,6 @@ class Choreographer:
         *,
         agent_id: UUID,
         task: Any,
-        skip_sequence: bool = False,
     ) -> Envelope | None:
         """Run concurrency-invariant claim guards. Returns rejection or None.
 
@@ -714,11 +712,7 @@ class Choreographer:
         in the verb's spec gate; the former role-typed and
         pm_cannot_execute_code guards have been deleted (Task 27, 2026-05-10).
 
-        Pre-gateway location: _helpers.py:124-204 + claim.py:121-180.
-
-        ``skip_sequence`` lets resumption-of-already-claimed-task call sites
-        skip the sibling-sequence check (the sequence was already validated
-        on the original claim).
+        Pre-gateway location: _helpers.py:124-204.
         """
         in_progress = await self.task.list_in_progress_for_agent(agent_id)
         if guard := already_active_guard(in_progress, task.id):
@@ -730,25 +724,14 @@ class Choreographer:
         if dep_ids:
             unmet = await self.task.unmet_dependency_ids(dep_ids)
             if guard := unmet_dependency_guard(task, unmet):
-                return guard
-        if not skip_sequence:
-            siblings = await self._fetch_siblings(task)
-            if guard := sibling_sequence_guard(task, siblings):
+                # Park the dependency-gated task back to pending so the
+                # orchestrator stops respawning its assignee (the respawn loop
+                # targets only claimed/in_progress) and the dispatch dependency
+                # filter holds it until the upstream completes. No-op unless the
+                # task is currently claimed/in_progress.
+                await self.task.release_dependency_blocked_claim(task.id)
                 return guard
         return None
-
-    async def _fetch_siblings(self, task: Any) -> list[Any]:
-        """Fetch sibling tasks for the sequence-order guard.
-
-        Returns ``[]`` when the task has no parent (root task) so the
-        guard short-circuits. Otherwise returns the parent's subtasks via
-        ``TaskService.get_subtasks``.
-        """
-        parent_id = getattr(task, "parent_task_id", None)
-        if parent_id is None:
-            return []
-        siblings: list[Any] = await self.task.get_subtasks(parent_id)
-        return siblings
 
     async def _non_terminal_subtask_ids(self, parent_task_id: UUID) -> str:
         """Return a human-readable comma-separated list of non-terminal subtasks.
@@ -833,13 +816,11 @@ class Choreographer:
                 task_id=task_id,
                 verb=verb_name,
             )
-        # Concurrency guards still apply (paused / already-active in another
-        # task). Sibling sequence is skipped on resumption — see
-        # _run_claim_guards docstring.
+        # Concurrency guards still apply on resumption (paused / already-active
+        # in another task).
         if guard := await self._run_claim_guards(
             agent_id=agent_id,
             task=t,
-            skip_sequence=True,
         ):
             return await self._emit_rejection(
                 self._with_briefing(guard, briefing).with_introspection(
@@ -899,7 +880,7 @@ class Choreographer:
         """Run all gates for an ``i_will_work_on`` / ``i_will_plan`` call.
 
         Order: spec.can_invoke_intent -> behavioral claim guards
-        (already_active / paused / sibling_sequence). Any rejection
+        (already_active / paused / unmet_dependency). Any rejection
         short-circuits with the appropriate envelope.
 
         Per-role claim authority (CLAIM_RULES) is enforced inside
@@ -921,7 +902,7 @@ class Choreographer:
         # Behavioral pre-flight guards the spec doesn't yet model:
         # - already_active: agent has another in_progress task elsewhere
         # - paused_tasks: agent has a paused task they should resume first
-        # - sibling_sequence: an earlier-numbered sibling is still open
+        # - unmet_dependency: an upstream dependency is still non-terminal
         # The role/state/task_type checks already passed via the spec gate
         # above. These migrate into spec.extra_preconditions in a later
         # task; until then, keep them imperative so concurrency invariants
@@ -1475,7 +1456,10 @@ class Choreographer:
     async def _i_am_done_gate(self, ctx: _IAmDoneContext) -> Envelope | None:
         """Run defense-in-depth tracing + field-level gates the spec doesn't model.
 
-        Returns the rejection envelope if any gate fails; None on pass.
+        Also pushes the branch to origin so a task cannot reach awaiting_qa
+        with commits that exist only in the developer's local workspace.
+        Returns the rejection envelope if any gate fails; None on pass. Shared
+        by the normal and resume-from-verifying paths so both push.
         """
         if rejection := await self._check_tracing_gates(
             ctx.agent_id, ctx.task_id, ctx.task
@@ -1485,10 +1469,36 @@ class Choreographer:
             ctx.agent_id, ctx.task_id, ctx.task
         ):
             return await self._reject_i_am_done(ctx, rejection)
+        if rejection := await self._ensure_branch_pushed(ctx):
+            return await self._reject_i_am_done(ctx, rejection)
         # Wave C5 (2026-05-12) — pre-gateway parity. Persist per-criterion
         # status now that all gates have passed. The write runs AFTER the
         # verdict so it cannot change i_am_done's rejection behavior.
         await self._write_criteria_status(ctx.agent_id, ctx.task_id, ctx.task)
+        return None
+
+    async def _ensure_branch_pushed(self, ctx: _IAmDoneContext) -> Envelope | None:
+        """Push the task branch to origin before it reaches awaiting_qa.
+
+        QA reviews the remote PR branch. A fix committed during a revision
+        cycle lives only in the developer's local workspace until pushed —
+        without this, QA re-reviews the stale remote and fails the same task
+        every cycle (a non-converging loop). Idempotent: a no-op when nothing
+        is unpushed, so first-submit (already pushed by open_pr) is unaffected.
+        """
+        try:
+            await self.git.push_task_branch(ctx.agent_id, ctx.task_id)
+        except Exception as exc:
+            return Envelope.invalid_state(
+                message=f"could not push your branch to origin: {exc}",
+                remediate=(
+                    "your latest commits are local-only and QA reviews the "
+                    "pushed PR branch. resolve the push error (often a "
+                    "transient network / fetch timeout) and call i_am_done "
+                    "again."
+                ),
+                context_briefing=ctx.briefing,
+            )
         return None
 
     @staticmethod
@@ -3349,13 +3359,13 @@ class Choreographer:
         return value.value if hasattr(value, "value") else str(value)
 
     async def _wire_ux_frontend_dependency(self, new_task: Any, parent: Any) -> None:
-        """Cross-cell sequencing: in a product fan-out the FRONTEND cell task
-        depends on the UX/UI cell task — UX design is upstream of frontend
-        implementation, while backend runs in parallel. Wires the dependency in
-        either delegation order. A dev/code subtask delegated under a cell task
-        that is itself still waiting on that dependency inherits it, so the
-        developer is held until UX is done instead of coding ahead of the
-        design. Best-effort: never breaks delegate.
+        """Cross-cell sequencing: in a product fan-out the implementation cells
+        (FRONTEND and BACKEND) depend on the UX/UI cell task — UX design defines
+        the screens and API contracts both cells build against, so it is upstream
+        of implementation. Wires the dependency in either delegation order. A
+        dev/code subtask delegated under a cell task that is itself still waiting
+        on that dependency inherits it, so the developer is held until UX is done
+        instead of coding ahead of the design. Best-effort: never breaks delegate.
         """
         if parent is None or getattr(parent, "product_id", None) is None:
             return
@@ -3368,11 +3378,14 @@ class Choreographer:
             await self.task.inherit_unmet_dependencies(new_task.id, parent.id)
             if nt_team == Team.FRONTEND.value:
                 await self._depend_frontend_on_ux(new_task, parent.id)
+            elif nt_team == Team.BACKEND.value:
+                await self._depend_backend_on_ux(new_task, parent.id)
             elif nt_team == Team.UX_UI.value:
                 await self._depend_pending_frontends_on_ux(new_task, parent.id)
+                await self._depend_pending_backends_on_ux(new_task, parent.id)
         except Exception as exc:
             logger.warning(
-                "cross-cell UX->FE sequencing wiring failed",
+                "cross-cell UX->implementation sequencing wiring failed",
                 error=str(exc),
                 parent_task_id=str(getattr(parent, "id", None)),
             )
@@ -3396,6 +3409,32 @@ class Choreographer:
         )
         if ux is not None:
             await self.task.add_dependency(fe_task.id, ux.id)
+            await self.task.set_sequence(
+                fe_task.id, (getattr(ux, "sequence", 0) or 0) + 1
+            )
+
+    async def _depend_backend_on_ux(self, be_task: Any, parent_id: Any) -> None:
+        """Make a new BACKEND cell task wait on its non-terminal UX/UI sibling."""
+        from roboco.foundation.identity import Team
+        from roboco.models.base import TaskStatus
+
+        terminal = {TaskStatus.COMPLETED, TaskStatus.CANCELLED}
+        siblings = await self.task.get_subtasks(parent_id)
+        ux = next(
+            (
+                s
+                for s in siblings
+                if self._team_value(s.team) == Team.UX_UI.value
+                and s.id != be_task.id
+                and s.status not in terminal
+            ),
+            None,
+        )
+        if ux is not None:
+            await self.task.add_dependency(be_task.id, ux.id)
+            await self.task.set_sequence(
+                be_task.id, (getattr(ux, "sequence", 0) or 0) + 1
+            )
 
     async def _depend_pending_frontends_on_ux(
         self, ux_task: Any, parent_id: Any
@@ -3405,6 +3444,7 @@ class Choreographer:
         from roboco.models.base import TaskStatus
 
         not_started = {TaskStatus.BACKLOG, TaskStatus.PENDING}
+        ux_sequence = (getattr(ux_task, "sequence", 0) or 0) + 1
         siblings = await self.task.get_subtasks(parent_id)
         for fe in siblings:
             if (
@@ -3413,6 +3453,26 @@ class Choreographer:
                 and fe.status in not_started
             ):
                 await self.task.add_dependency(fe.id, ux_task.id)
+                await self.task.set_sequence(fe.id, ux_sequence)
+
+    async def _depend_pending_backends_on_ux(
+        self, ux_task: Any, parent_id: Any
+    ) -> None:
+        """Retro-wire not-yet-started BACKEND siblings onto a new UX/UI task."""
+        from roboco.foundation.identity import Team
+        from roboco.models.base import TaskStatus
+
+        not_started = {TaskStatus.BACKLOG, TaskStatus.PENDING}
+        ux_sequence = (getattr(ux_task, "sequence", 0) or 0) + 1
+        siblings = await self.task.get_subtasks(parent_id)
+        for be in siblings:
+            if (
+                self._team_value(be.team) == Team.BACKEND.value
+                and be.id != ux_task.id
+                and be.status in not_started
+            ):
+                await self.task.add_dependency(be.id, ux_task.id)
+                await self.task.set_sequence(be.id, ux_sequence)
 
     async def _resolve_subtask_project(
         self, parent: Any, inputs: DelegateInputs
@@ -3893,6 +3953,32 @@ class Choreographer:
                     message=f"task {task_id} is in {t.status}, expected blocked",
                     remediate=(
                         "this task is not blocked; call triage() to find blocked tasks"
+                    ),
+                    context_briefing=await self._briefing_for(pm_agent_id, task_id),
+                ).with_introspection(task=t, role=role),
+                agent_id=pm_agent_id,
+                task_id=task_id,
+                verb="unblock",
+            )
+
+        # A dependency block must not be cleared by hand. It auto-clears via
+        # _unblock_dependents the moment its last dependency reaches a terminal
+        # state; forcing it now would let the dependent proceed without the
+        # upstream's work (e.g. a frontend task built before its UX design lands).
+        dep_ids = list(t.dependency_ids or [])
+        unmet = await self.task.unmet_dependency_ids(dep_ids) if dep_ids else []
+        if unmet:
+            return await self._emit_rejection(
+                Envelope.invalid_state(
+                    message=(
+                        f"task {task_id} still depends on {len(unmet)} "
+                        "unfinished task(s); a dependency block clears on its "
+                        "own once the upstream work completes"
+                    ),
+                    remediate=(
+                        "don't force this — let the dependency finish; the task "
+                        "auto-unblocks the moment its last dependency reaches "
+                        "completed/cancelled"
                     ),
                     context_briefing=await self._briefing_for(pm_agent_id, task_id),
                 ).with_introspection(task=t, role=role),
