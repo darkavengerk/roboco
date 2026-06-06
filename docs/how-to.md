@@ -69,7 +69,9 @@ PM** picks it up, splits it across the cells, and sets them running.
 *The Board's verdict lands in your notifications and pauses there. A single
 approval is what turns the whole company on.*
 
-<!-- TODO: add the screenshot of the green "Approve & Start" button on the task. -->
+![The CEO's pending-approval queue with a task card showing the green "Approve & Start" button.](images/approve_task.png)
+
+![The task detail panel opened from the approval queue, with the Approve & Start action alongside the task brief.](images/approve_task_detail.png)
 
 ### 3 · The cells take over
 
@@ -111,7 +113,9 @@ along with it:
 *One finished unit — branch, pull request, commits, and docs all attached. This
 is the thing that travels up the merge chain.*
 
-<!-- TODO: add the Git view showing each cell's PR merging into the Main PM branch. -->
+![A cell task's Git view: branch, commits, and the pull request opened against the Main PM integration branch.](images/task_definition_1.png)
+
+![The Main PM integration branch showing each cell's PR landing in turn, with the integration PR ready to open against `main`.](images/task_definition_2.png)
 
 ### 6 · The last call is yours
 
@@ -121,7 +125,7 @@ and it ships, or send it around for another lap. You're the only one who ever
 touches `master`, and anything waiting on you sits in the **CEO Approval Queue**
 on the Command Center until you act.
 
-<!-- TODO: add the final "done" notification + the approve / merge button. -->
+![The final CEO approval notification: the integrated PR waiting for the merge, with the Approve & Merge action surfaced.](images/ceo_approval_notif.png)
 
 ---
 
