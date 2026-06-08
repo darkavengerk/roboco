@@ -87,6 +87,42 @@ class NotificationService:
             )
         )
 
+    async def send_stuck_agent_notification(
+        self,
+        task_id: str,
+        agent_slug: str,
+        task_status: str,
+        to_agent: str,
+    ) -> None:
+        """Alert an overseer that an agent is wedged in an unproductive loop.
+
+        Raised when the dispatcher's respawn circuit-breaker pauses further
+        spawns: the agent was respawned repeatedly without advancing the task,
+        so automatic recovery has given up and a human needs to intervene.
+        """
+        logger.info(
+            "Sending stuck-agent notification",
+            task_id=task_id,
+            agent=agent_slug,
+            to_agent=to_agent,
+        )
+        body = (
+            f"Agent {agent_slug} was repeatedly spawned on task {task_id} "
+            f"(status: {task_status}) without advancing it, so further automatic "
+            "spawns have been paused. Please investigate and intervene manually."
+        )
+        await self._create_notification(
+            CreateNotificationParams(
+                notification_type=NotificationType.BLOCKER_ESCALATION,
+                priority=NotificationPriority.HIGH,
+                from_agent="system",
+                to_agents=[to_agent],
+                subject=f"Agent {agent_slug} stuck on task {task_id}",
+                body=body,
+                related_task_id=task_id,
+            )
+        )
+
     async def send_qa_ready_notification(
         self,
         task_id: str,

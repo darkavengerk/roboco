@@ -80,12 +80,57 @@ async def test_three_no_progress_spawns_still_trip_kill() -> None:
     fake_audit = AsyncMock()
     fake_audit.has_recent_tracing_gap = AsyncMock(return_value=False)
 
-    with patch("roboco.services.audit.get_audit_service", return_value=fake_audit):
+    with (
+        patch("roboco.services.audit.get_audit_service", return_value=fake_audit),
+        patch(
+            "roboco.services.notification.NotificationService",
+            return_value=AsyncMock(),
+        ),
+    ):
         # Spawns 1, 2, 3 — under threshold, all allowed.
         for _ in range(3):
             assert await orch._pm_respawn_should_gate("be-pm", task) is False
         # Spawn 4 — count now exceeds _PM_RESPAWN_MAX_UNPRODUCTIVE = 3.
         assert await orch._pm_respawn_should_gate("be-pm", task) is True
+
+
+@pytest.mark.asyncio
+async def test_stuck_loop_alerts_overseer_once() -> None:
+    """When the loop guard bites, the CEO is alerted exactly once.
+
+    The guard pauses further spawns but can't advance the task. Without an
+    alert a wedged agent is silently stranded. The alert must fire on the
+    first kill and NOT repeat on every subsequent skipped spawn.
+    """
+    orch = _new_orchestrator()
+    task_id = str(uuid4())
+    task = {"id": task_id, "status": "pending"}
+
+    fake_audit = AsyncMock()
+    fake_audit.has_recent_tracing_gap = AsyncMock(return_value=False)
+    notifier = AsyncMock()
+    notifier.send_stuck_agent_notification = AsyncMock()
+
+    with (
+        patch("roboco.services.audit.get_audit_service", return_value=fake_audit),
+        patch(
+            "roboco.services.notification.NotificationService",
+            return_value=notifier,
+        ),
+    ):
+        # Under threshold — no kill, no alert.
+        for _ in range(3):
+            assert await orch._pm_respawn_should_gate("be-pm", task) is False
+        notifier.send_stuck_agent_notification.assert_not_awaited()
+        # Two over-threshold spawns — both killed, but only ONE alert.
+        assert await orch._pm_respawn_should_gate("be-pm", task) is True
+        assert await orch._pm_respawn_should_gate("be-pm", task) is True
+
+    notifier.send_stuck_agent_notification.assert_awaited_once()
+    kwargs = notifier.send_stuck_agent_notification.await_args.kwargs
+    assert kwargs["to_agent"] == "ceo"
+    assert kwargs["task_id"] == task_id
+    assert kwargs["agent_slug"] == "be-pm"
 
 
 @pytest.mark.asyncio
