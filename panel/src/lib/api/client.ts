@@ -76,11 +76,42 @@ api.interceptors.response.use(
 );
 
 /**
+ * Turn a FastAPI `detail` payload — a string, a validation array
+ * ([{loc, msg, ...}]), or a structured `{error, message}` object — into one
+ * readable line. Returns "" when nothing useful can be extracted.
+ */
+function formatErrorDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === "object" && "msg" in item) {
+          const e = item as { loc?: unknown[]; msg?: unknown };
+          const loc = Array.isArray(e.loc)
+            ? e.loc.filter((p) => p !== "body").join(".")
+            : "";
+          const msg = String(e.msg ?? "");
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return typeof item === "string" ? item : "";
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    const obj = detail as Record<string, unknown>;
+    if (typeof obj.message === "string") return obj.message;
+    if (typeof obj.error === "string") return obj.error;
+  }
+  return "";
+}
+
+/**
  * Helper to extract user-friendly error message from API error
  */
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<{ detail?: string }>;
+    const axiosError = error as AxiosError<{ detail?: unknown }>;
 
     // Check for specific error codes
     if (error.code === "ECONNABORTED") {
@@ -90,9 +121,13 @@ export function getErrorMessage(error: unknown): string {
       return "Cannot connect to server. Check if the backend is running.";
     }
 
-    // Check for API error response
-    if (axiosError.response?.data?.detail) {
-      return String(axiosError.response.data.detail);
+    // Check for API error response. `detail` may be a plain string, a FastAPI
+    // validation array ([{loc, msg, ...}]), or a structured envelope object —
+    // never blindly String() it (that yields "[object Object]").
+    const detail = axiosError.response?.data?.detail;
+    if (detail) {
+      const formatted = formatErrorDetail(detail);
+      if (formatted) return formatted;
     }
 
     // Check for HTTP status
