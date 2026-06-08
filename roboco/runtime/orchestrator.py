@@ -4083,8 +4083,8 @@ Start now: evidence(task_id="{task_id}")
         the counter resets. Once the count hits the threshold, the spawn
         is skipped and a warning logged; operators must intervene.
 
-        Tracing-gap reset (Task 13)
-        ---------------------------
+        Tracing-gap reset
+        -----------------
         With the gateway claim-time gates installed, a rule-following PM
         will hit ``PARENT_NOT_CLAIMED`` (a ``tracing_gap`` envelope) and
         the prompt will tell it to call the prerequisite verb first.
@@ -4120,6 +4120,7 @@ Start now: evidence(task_id="{task_id}")
         if await self._pm_made_rule_following_retry(agent_slug, task_id, record):
             record["count"] = 1
             record["last_check"] = now
+            record["notified"] = False
             return False
         record["count"] += 1
         record["last_check"] = now
@@ -4136,8 +4137,38 @@ Start now: evidence(task_id="{task_id}")
                     "Investigate prompt/schema drift or escalate manually."
                 ),
             )
+            # A skipped spawn pauses the loop but can't advance the task; alert
+            # an overseer once so a wedged agent isn't silently stranded.
+            if not record.get("notified"):
+                record["notified"] = True
+                await self._notify_stuck_agent(agent_slug, task_id, current_status)
             return True
         return False
+
+    async def _notify_stuck_agent(
+        self, agent_slug: str, task_id: str, task_status: str | None
+    ) -> None:
+        """One-shot alert to the CEO that an agent is wedged in a respawn loop.
+
+        Best-effort: a notification failure must not wedge dispatch, so any
+        error is logged and swallowed.
+        """
+        from roboco.services.notification import NotificationService
+
+        try:
+            await NotificationService().send_stuck_agent_notification(
+                task_id=task_id,
+                agent_slug=agent_slug,
+                task_status=task_status or "unknown",
+                to_agent="ceo",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to send stuck-agent notification",
+                agent_id=agent_slug,
+                task_id=task_id,
+                error=str(exc),
+            )
 
     async def _pm_made_rule_following_retry(
         self,

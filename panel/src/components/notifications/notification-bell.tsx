@@ -58,7 +58,7 @@ export function NotificationBell() {
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {notifications.slice(-10).reverse().map((notification, i) => (
                 <div
-                  key={i}
+                  key={notification.notification_id ?? `anon-${i}`}
                   className="p-2 rounded bg-muted hover:bg-muted/80 cursor-pointer"
                 >
                   <div className="flex items-center justify-between">

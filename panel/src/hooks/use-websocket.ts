@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { 
   WebSocketConnection, 
   getWebSocketUrl 
@@ -185,8 +185,27 @@ export function useNotificationStream() {
       true
     );
 
-  // Filter to only notification events
-  const notifications = messages.filter((m) => m.type === "notification");
+  // Filter to notification events, de-duplicated by notification_id so a
+  // stream replay (e.g. after a websocket reconnect) does not surface — or
+  // count — the same notification twice. Walk newest→oldest keeping the most
+  // recent copy of each id, then restore arrival order. Events without an id
+  // (older payloads) are always kept.
+  const notifications = useMemo(() => {
+    const seen = new Set<string>();
+    const deduped: NotificationMessage[] = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.type !== "notification") continue;
+      const id = m.notification_id;
+      if (id) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      deduped.push(m);
+    }
+    deduped.reverse();
+    return deduped;
+  }, [messages]);
 
   return {
     state,
