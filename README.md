@@ -7,6 +7,14 @@ AI Agents Company - A virtual organization of 20 AI agents + 1 human CEO, design
 </p>
 
 <p align="center">
+  <a href="https://www.youtube.com/watch?v=t1QNqJgBmkM">
+    <img src="https://img.youtube.com/vi/t1QNqJgBmkM/maxresdefault.jpg" alt="Watch the 26-minute RoboCo intro on YouTube — what it is, a walkthrough, and how to use it" width="80%">
+  </a>
+  <br>
+  <sub>▶ <b><a href="https://www.youtube.com/watch?v=t1QNqJgBmkM">Watch the 26-min intro on YouTube</a></b> — what it is, a walkthrough, and how to use it</sub>
+</p>
+
+<p align="center">
   <img src="docs/videos/panel-teaser.gif" alt="Twelve-second looping preview of the RoboCo control panel — the org tree, a task in progress, and an approval queue." width="80%">
   <br>
   <sub><a href="docs/videos/panel-full-walkthrough.mp4">Watch the full 2:33 walkthrough (.mp4) →</a></sub>
