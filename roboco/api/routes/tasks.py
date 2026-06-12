@@ -154,7 +154,7 @@ async def create_task(
             agent_row = await get_agent_by_slug(db, data.assigned_to)
             if agent_row is None:
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail={
                         "error": {
                             "code": "ASSIGNEE_NOT_FOUND",

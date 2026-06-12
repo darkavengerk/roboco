@@ -30,7 +30,7 @@ async def update_setting(
         await service.set(key, data.value)
     except SettingValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     # Write route commits explicitly (get_db auto-commit is unreliable).
     await db.commit()

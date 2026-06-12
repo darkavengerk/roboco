@@ -214,7 +214,10 @@ async def db_session(_test_database_url: str) -> AsyncIterator[AsyncSession]:
     Each test gets its own session and connection; teardown rolls back any
     uncommitted state and disposes the engine to keep connection counts low.
     """
-    engine = create_async_engine(_test_database_url, future=True, pool_pre_ping=True)
+    # No pool_pre_ping: a fresh per-test engine can't have stale connections, and
+    # pre-ping on asyncpg leaves an un-awaited Connection._cancel coroutine that
+    # surfaces as a RuntimeWarning during GC.
+    engine = create_async_engine(_test_database_url, future=True)
     factory = async_sessionmaker(
         bind=engine, class_=AsyncSession, expire_on_commit=False
     )

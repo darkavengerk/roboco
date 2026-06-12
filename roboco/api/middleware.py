@@ -389,7 +389,7 @@ async def request_validation_handler(request: Request, exc: Exception) -> JSONRe
     if remediate is not None:
         content["remediate"] = remediate
     return JSONResponse(
-        status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=content,
     )
 

@@ -37,6 +37,19 @@ def is_agent_owned_dir(dir_name: str, workspaces_root: str) -> bool:
     return bool(encoded_root) and dir_name.startswith(encoded_root)
 
 
+def _is_old_transcript(path: Path, cutoff_epoch: float) -> bool:
+    """True if ``path`` is a regular .jsonl file last modified before the cutoff."""
+    try:
+        return path.is_file() and path.stat().st_mtime < cutoff_epoch
+    except OSError:
+        return False
+
+
+def _old_transcripts_in(directory: Path, cutoff_epoch: float) -> list[Path]:
+    """Old ``*.jsonl`` transcripts directly inside one agent-owned dir."""
+    return [t for t in directory.glob("*.jsonl") if _is_old_transcript(t, cutoff_epoch)]
+
+
 def select_prunable_transcripts(
     projects_root: Path, workspaces_root: str, cutoff_epoch: float
 ) -> list[Path]:
@@ -50,12 +63,6 @@ def select_prunable_transcripts(
         return []
     prunable: list[Path] = []
     for child in sorted(projects_root.iterdir()):
-        if not child.is_dir() or not is_agent_owned_dir(child.name, workspaces_root):
-            continue
-        for transcript in child.glob("*.jsonl"):
-            try:
-                if transcript.is_file() and transcript.stat().st_mtime < cutoff_epoch:
-                    prunable.append(transcript)
-            except OSError:
-                continue
+        if child.is_dir() and is_agent_owned_dir(child.name, workspaces_root):
+            prunable.extend(_old_transcripts_in(child, cutoff_epoch))
     return prunable

@@ -74,7 +74,7 @@ async def create_product(
                 detail="Duplicate cell: each team may map to at most one project.",
             ) from e
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid cell mapping: project_id does not reference a project.",
         ) from e
     return product_to_response(product)
@@ -131,7 +131,7 @@ async def update_product(
                 detail="Duplicate cell: each team may map to at most one project.",
             ) from e
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid cell mapping: project_id does not reference a project.",
         ) from e
     return product_to_response(product)

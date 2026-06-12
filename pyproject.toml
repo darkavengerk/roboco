@@ -237,6 +237,12 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=roboco --cov-report=term-missing"
+markers = [
+    "asyncio: mark tests as async",
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
 
 [tool.coverage.run]
 # Coverage core. Python 3.12+ supports sys.monitoring; the legacy `pytrace`
@@ -285,12 +291,6 @@ omit = [
     "roboco/cli.py",
     # Auto-generated migrations.
     "alembic/*",
-]
-markers = [
-    "asyncio: mark tests as async",
-    "slow: marks tests as slow",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
 ]
 
 # =============================================================================
