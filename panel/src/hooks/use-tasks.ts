@@ -76,15 +76,19 @@ export function useSubtasks(parentTaskId: string) {
 /**
  * Fetches valid next statuses for a task from GET /tasks/{id}/valid-transitions.
  * Returns undefined while loading; on error (including 404) gracefully returns
- * undefined so callers can fall back to a hardcoded map.
+ * undefined and the caller renders just the current status.
+ *
+ * `status` is part of the query key so the transitions refetch when the task
+ * moves to a new state — otherwise a stale list (e.g. the pre-merge transitions)
+ * lingers and can re-list the now-current status.
  */
-export function useTaskValidTransitions(taskId: string) {
+export function useTaskValidTransitions(taskId: string, status?: string) {
   return useQuery<TaskStatus[]>({
-    queryKey: ["tasks", "valid-transitions", taskId] as const,
+    queryKey: ["tasks", "valid-transitions", taskId, status] as const,
     queryFn: () => tasksApi.getValidTransitions(taskId),
     enabled: !!taskId,
     staleTime: 30000, // 30 seconds
-    retry: false, // don't retry on 404 or other errors — caller falls back to hardcoded map
+    retry: false, // don't retry on 404/errors — caller renders just the current status
   });
 }
 

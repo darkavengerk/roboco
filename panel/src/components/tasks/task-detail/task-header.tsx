@@ -97,8 +97,14 @@ export function TaskHeader({ task, onAction }: TaskHeaderProps) {
   const updateTask = useUpdateTask();
   // Fetch valid next statuses from GET /tasks/{id}/valid-transitions.
   // Falls back to [] while loading or on error — the Select is disabled during loading.
-  const { data: validTransitionsData, isLoading: isTransitionsLoading } = useTaskValidTransitions(task.id);
-  const nextStatuses: TaskStatus[] = validTransitionsData ?? [];
+  const { data: validTransitionsData, isLoading: isTransitionsLoading } = useTaskValidTransitions(task.id, task.status);
+  // Exclude the current status: it is always rendered first (below), so a stale
+  // cache or a backend list that re-includes it would duplicate the item. Radix
+  // Select requires unique item values, so a duplicate also garbles the trigger
+  // label (it renders as e.g. "Completed Completed").
+  const nextStatuses: TaskStatus[] = (validTransitionsData ?? []).filter(
+    (s) => s !== task.status
+  );
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Inline editing states
