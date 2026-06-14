@@ -5585,6 +5585,7 @@ Start now: evidence(task_id="{task_id}")
 
     # Use foundation's default; keep the local name for back-compat.
     _PM_RESPAWN_MAX_UNPRODUCTIVE = _AGENT_LOOP_BUDGET.pm_respawn_max_unproductive
+    _PM_RESPAWN_MAX_TRACING_RESETS = _AGENT_LOOP_BUDGET.pm_respawn_max_tracing_resets
 
     async def _pm_respawn_should_gate(
         self, agent_slug: str, task: dict[str, Any]
@@ -5629,12 +5630,29 @@ Start now: evidence(task_id="{task_id}")
             }
             return False
         # Same status as last spawn — could be a stuck loop OR a
-        # rule-following retry. Consult audit before counting.
+        # rule-following retry. A tracing_gap normally means the agent is
+        # advancing through a verb chain, so reset the strike counter — but
+        # only up to a bound. A task whose EVERY respawn trips the same gap is
+        # wedged, not progressing (e.g. the unblock journal-decision gate a
+        # cold-respawned PM can never satisfy), so cap the resets and let
+        # strikes accrue once the budget is exhausted. Without this cap the
+        # gate never fires for a tracing_gap loop and respawns run forever.
         if await self._pm_made_rule_following_retry(agent_slug, task_id, record):
-            record["count"] = 1
-            record["last_check"] = now
-            record["notified"] = False
-            return False
+            resets = record.get("tracing_resets", 0)
+            if resets < self._PM_RESPAWN_MAX_TRACING_RESETS:
+                record["tracing_resets"] = resets + 1
+                record["count"] = 1
+                record["last_check"] = now
+                record["notified"] = False
+                return False
+            logger.warning(
+                "PM respawn tracing_gap reset budget exhausted — "
+                "treating recurring gap as a stuck loop",
+                agent_id=agent_slug,
+                task_id=task_id,
+                task_status=current_status,
+                tracing_resets=resets,
+            )
         record["count"] += 1
         record["last_check"] = now
         if record["count"] > self._PM_RESPAWN_MAX_UNPRODUCTIVE:
@@ -6690,6 +6708,57 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
             )
         return True
 
+    async def _blocked_by_earlier_sibling(self, task: dict[str, Any]) -> bool:
+        """True if a lower-sequence, same-team sibling is not yet terminal.
+
+        Sequence-ordered merge: leaf siblings share one cell branch, so merging
+        a later sibling before an earlier one diverges the branch and wedges the
+        loser. Hold a higher-sequence sibling's review/merge dispatch until the
+        earlier ones land (or are cancelled). Loop-free: the task simply isn't
+        dispatched this tick — no reject, no respawn churn.
+
+        Only same-team siblings block (they target the same branch). Terminal
+        siblings (completed/cancelled) never block, so a cancelled sibling can't
+        deadlock the rest. Best-effort: any lookup failure falls through to
+        dispatch — the ordering check must never wedge the dispatcher.
+        """
+        parent_id = task.get("parent_task_id")
+        seq = task.get("sequence")
+        team = task.get("team")
+        if not parent_id or seq is None:
+            return False
+        from uuid import UUID
+
+        from roboco.db.base import get_session_factory
+        from roboco.models.base import TaskStatus
+        from roboco.services.task import get_task_service
+
+        terminal = {TaskStatus.COMPLETED, TaskStatus.CANCELLED}
+        try:
+            session_factory = get_session_factory()
+            async with session_factory() as db:
+                task_svc = get_task_service(db)
+                siblings = await task_svc.get_subtasks(UUID(str(parent_id)))
+        except Exception as exc:
+            logger.debug(
+                "sibling-order check failed; dispatching anyway",
+                task_id=task.get("id"),
+                error=str(exc),
+            )
+            return False
+        for sib in siblings:
+            sib_seq = getattr(sib, "sequence", 0) or 0
+            sib_team = getattr(sib, "team", None)
+            sib_status = getattr(sib, "status", None)
+            sib_team_val = getattr(sib_team, "value", sib_team)
+            if (
+                str(sib_team_val) == str(team)
+                and sib_seq < seq
+                and sib_status not in terminal
+            ):
+                return True
+        return False
+
     async def _dispatch_pm_review_work(self, client: httpx.AsyncClient) -> None:
         """
         Dispatch PM review work to cell PMs or Main PM.
@@ -6703,10 +6772,22 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
             team = task.get("team")
             assigned_to = task.get("assigned_to")
 
+            # Sequence-ordered merge: don't review/merge a leaf until its
+            # earlier same-team siblings have landed, so they merge into the
+            # shared cell branch in order instead of racing and wedging.
+            if await self._blocked_by_earlier_sibling(task):
+                continue
+
             # If already assigned, check if that agent is running
             if assigned_to:
                 assigned_slug = self._resolve_agent_slug(assigned_to)
                 if self._is_agent_active(assigned_slug):
+                    continue
+                # Loop guard: a review task that keeps re-surfacing without
+                # advancing (e.g. an unmergeable PR that re-blocks every cycle)
+                # must stop respawning the reviewer, else it burns tokens
+                # forever. The gate notifies the CEO once it trips.
+                if await self._pm_respawn_should_gate(assigned_slug, task):
                     continue
                 # Agent not running - spawn them to continue
                 await self.spawn_agent(
@@ -6817,6 +6898,14 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
                 continue
 
             if self._is_agent_active(agent_id):
+                continue
+
+            # Loop guard: a blocked task whose unblock can never succeed (e.g.
+            # a cold-respawned PM that can't satisfy the unblock decision gate,
+            # or an unresolvable merge conflict) must stop respawning the
+            # resolver. The gate notifies the CEO once it trips so the wedged
+            # task surfaces instead of silently burning tokens.
+            if await self._pm_respawn_should_gate(agent_id, task):
                 continue
 
             await self.spawn_agent(
