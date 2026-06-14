@@ -1503,11 +1503,39 @@ class Choreographer:
             return await self._reject_i_am_done(ctx, rejection)
         if rejection := await self._ensure_branch_pushed(ctx):
             return await self._reject_i_am_done(ctx, rejection)
+        if rejection := await self._check_quality_gate(ctx):
+            return await self._reject_i_am_done(ctx, rejection)
         # Pre-gateway parity: persist per-criterion
         # status now that all gates have passed. The write runs AFTER the
         # verdict so it cannot change i_am_done's rejection behavior.
         await self._write_criteria_status(ctx.agent_id, ctx.task_id, ctx.task)
         return None
+
+    async def _check_quality_gate(self, ctx: _IAmDoneContext) -> Envelope | None:
+        """Run the project's fast quality gate (lint + typecheck) in the dev's
+        workspace before the task reaches QA, so a red gate is caught at the
+        dev's desk instead of in QA review or CI. The full test suite stays on
+        CI. Fail-open: a gate-infrastructure error (missing workspace or
+        toolchain) is logged and never blocks the submit; only an actual check
+        failure blocks.
+        """
+        try:
+            result = await self.git.run_pre_submit_quality_gate(ctx.agent_id, ctx.task)
+        except Exception as exc:
+            logger.warning(
+                "quality_gate_skipped", task_id=str(ctx.task_id), error=str(exc)
+            )
+            return None
+        if result.passed:
+            return None
+        return Envelope.invalid_state(
+            message=f"quality gate failed before QA — {result.summary}",
+            remediate=(
+                "Fix these in your workspace, commit, and call i_am_done again "
+                "— QA reviews working code, not a red gate:\n\n" + result.output_excerpt
+            ),
+            context_briefing=ctx.briefing,
+        )
 
     async def _ensure_branch_pushed(self, ctx: _IAmDoneContext) -> Envelope | None:
         """Push the task branch to origin before it reaches awaiting_qa.

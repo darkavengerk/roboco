@@ -48,6 +48,7 @@ from roboco.services.base import (
     UnauthorizedError,
     ValidationError,
 )
+from roboco.services.gateway.quality_gate import GateResult, run_quality_commands
 from roboco.services.project import get_project_service
 from roboco.services.task import TaskService, get_task_service
 from roboco.services.work_session import get_work_session_service
@@ -1979,6 +1980,39 @@ class GitService(BaseService):
         if not project_ids:
             return None
         return await project_service.get(project_ids[0])
+
+    @staticmethod
+    def _fast_gate_commands(project: Any) -> list[tuple[str, str]]:
+        """The project's non-mutating fast-gate commands (lint + typecheck).
+
+        Format and the test suite are intentionally excluded: format mutates
+        files, and the slow test run stays on CI.
+        """
+        candidates = (
+            ("lint", getattr(project, "lint_command", None)),
+            ("typecheck", getattr(project, "typecheck_command", None)),
+        )
+        return [(name, cmd) for name, cmd in candidates if cmd]
+
+    async def run_pre_submit_quality_gate(
+        self, actor_agent_id: UUID, task: Any
+    ) -> GateResult:
+        """Run the project's fast quality gate in the developer's workspace.
+
+        Resolves the task's project and the developer's workspace clone, then
+        runs the configured lint + typecheck commands there. Returns a skipped
+        pass when the project configures no fast-gate commands (so projects that
+        opt out are never blocked). Raises only on workspace-resolution failure;
+        the caller treats any such failure as fail-open.
+        """
+        project = await self._project_for_task(task)
+        if project is None:
+            return GateResult(passed=True, skipped=True)
+        commands = self._fast_gate_commands(project)
+        if not commands:
+            return GateResult(passed=True, skipped=True)
+        workspace = await self.get_workspace(project.slug, actor_agent_id)
+        return await run_quality_commands(workspace, commands)
 
     async def _project_slug_for_branch(self, branch_name: str) -> str | None:
         """Resolve project slug via the task that owns the branch."""
