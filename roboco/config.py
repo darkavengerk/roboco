@@ -131,11 +131,6 @@ class Settings(BaseSettings):
         default=1024, ge=100, description="Chunk size for journals/reflections"
     )
     rag_chunk_overlap: int = Field(default=128, ge=0)
-    rag_use_hyde: bool = Field(
-        default=True,
-        description="Use HyDE (hypothetical document embeddings). "
-        "Makes one LLM call per query for better semantic matching.",
-    )
     rag_auto_update_enabled: bool = Field(default=True)
     rag_auto_update_interval: int = Field(
         default=300, ge=60, description="Seconds between auto-updates"
@@ -165,10 +160,11 @@ class Settings(BaseSettings):
         description="Embedding dimensions (1024 for qwen3-embedding)",
     )
 
-    # Local LLM for RAG (HyDE, reranking, etc.)
+    # Local LLM for RAG answer synthesis
     local_llm_model: str = Field(
         default="glm-5:cloud",
-        description="Local LLM for HyDE/RAG (non-thinking models are faster)",
+        description="Local LLM for RAG answer synthesis "
+        "(non-thinking models are faster)",
     )
     local_llm_base_url: str = Field(
         default="http://roboco-ollama:11434/v1",

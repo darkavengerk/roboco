@@ -67,7 +67,6 @@ class IndexConfig:
     chunk_strategy: str = "fixed"
     chunk_size: int = 512
     chunk_overlap: int = 50
-    use_hyde: bool = True
     embedding_model: str = "qwen3-embedding:0.6b"
     llm_model: str = "glm-5:cloud"
     llm_base_url: str = "http://roboco-ollama:11434/v1"
@@ -88,7 +87,6 @@ class IndexConfig:
             chunk_strategy=settings.rag_chunk_strategy,
             chunk_size=chunk_size,
             chunk_overlap=settings.rag_chunk_overlap,
-            use_hyde=settings.rag_use_hyde,
             embedding_model=settings.default_embedding_model,
             llm_model=settings.local_llm_model,
             llm_base_url=settings.local_llm_base_url,
@@ -721,70 +719,12 @@ class BaseIndexPlugin(ABC):
 
         return preprocessed
 
-    async def _generate_hyde_passage(self, query: str) -> str:
-        """Generate a hypothetical passage for HyDE query expansion.
-
-        Calls the configured Ollama LLM to produce a short passage that would
-        plausibly answer *query*.  Returns an empty string on any failure so
-        the caller can fall back to raw query embedding.
-
-        Args:
-            query: The (preprocessed) search query.
-
-        Returns:
-            A short hypothetical passage, or ``""`` on LLM error.
-        """
-        import httpx
-
-        prompt = (
-            "Write a concise technical passage (2-4 sentences) that directly "
-            "answers the following question. Include specific technical details "
-            "and terminology. Do not use <think> tags.\n\n"
-            f"Question: {query}\n\n"
-            "Answer:"
-        )
-
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{self.config.llm_base_url}/chat/completions",
-                    json={
-                        "model": self.config.llm_model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 200,
-                    },
-                )
-            if resp.is_success:
-                data = resp.json()
-                passage = self._extract_from_think_tags(
-                    data["choices"][0]["message"]["content"]
-                )
-                logger.debug(
-                    "HyDE passage generated",
-                    index_type=self.index_type.value,
-                    passage_len=len(passage),
-                )
-                return passage
-            logger.debug(
-                "HyDE LLM call returned non-success status",
-                status=resp.status_code,
-                index_type=self.index_type.value,
-            )
-        except Exception as e:
-            logger.debug(
-                "HyDE LLM call failed, will use raw query embedding",
-                index_type=self.index_type.value,
-                error=str(e),
-            )
-        return ""
-
     async def _compute_query_embedding(self, query: str) -> list[float]:
         """Preprocess the query and embed it using the configured embedder.
 
-        When ``config.use_hyde`` is ``True``, first calls the Ollama LLM to
-        generate a hypothetical answer passage (HyDE) and embeds that instead
-        of the raw query.  Falls back to raw query embedding if the LLM call
-        fails or returns an empty passage.
+        Hybrid retrieval (vector + full-text) covers the question/document
+        vocabulary gap HyDE used to paper over, so the query is embedded
+        directly — no per-query LLM round-trip in the search hot path.
         """
         import asyncio
 
@@ -799,29 +739,24 @@ class BaseIndexPlugin(ABC):
                 index_type=self.index_type.value,
             )
 
-        # HyDE: try to embed a hypothetical passage instead of the raw query
-        text_to_embed = processed_query
-        if self.config.use_hyde:
-            passage = await self._generate_hyde_passage(processed_query)
-            if passage:
-                text_to_embed = passage
-
         if hasattr(embedder, "aembed_query"):
-            result: list[float] = await embedder.aembed_query(text_to_embed)
+            result: list[float] = await embedder.aembed_query(processed_query)
             return result
-        return await asyncio.to_thread(embedder.embed_query, text_to_embed)
+        return await asyncio.to_thread(embedder.embed_query, processed_query)
 
     async def _fetch_citations(
         self,
         query_embedding: list[float],
+        query_text: str,
         top_k: int,
         has_filters: bool,
     ) -> list[Citation]:
-        """Fetch citations from the vector store."""
+        """Fetch citations via hybrid (vector + full-text) search."""
         store = self._require_store
         fetch_k = top_k * 3 if has_filters else top_k
-        return await store.search(
+        return await store.hybrid_search(
             query_embedding,
+            query_text,
             top_k=fetch_k,
             min_chunk_length=100,
         )
@@ -855,30 +790,32 @@ class BaseIndexPlugin(ABC):
         return results
 
     async def compute_query_embedding(self, query: str) -> list[float]:
-        """Embed a query (incl. HyDE) once.
+        """Embed a query once.
 
         Lets the service compute one embedding and fan it out across every
-        index, instead of each index re-running HyDE + embed sequentially.
+        index, instead of each index re-embedding.
         """
         return await self._compute_query_embedding(query)
 
     async def search_with_embedding(
         self,
         query_embedding: list[float],
+        query_text: str,
         top_k: int = 5,
         filters: dict[str, Any] | None = None,
     ) -> SearchOutcome:
-        """Search using a pre-computed query embedding (skips HyDE/embed).
+        """Search using a pre-computed query embedding (skips embed).
 
         Splitting embed from fetch lets the service embed once and run every
-        index's vector search concurrently.
+        index's hybrid search concurrently. ``query_text`` drives the full-text
+        half of the hybrid query.
         """
         import time
 
         start_time = time.time()
         try:
             chunks = await self._fetch_citations(
-                query_embedding, top_k, has_filters=bool(filters)
+                query_embedding, query_text, top_k, has_filters=bool(filters)
             )
             results = self._citations_to_results(chunks, top_k, filters)
             elapsed_ms = (time.time() - start_time) * 1000
@@ -932,7 +869,7 @@ class BaseIndexPlugin(ABC):
                 search_time_ms=elapsed_ms,
             )
         return await self.search_with_embedding(
-            query_embedding, top_k=top_k, filters=filters
+            query_embedding, query, top_k=top_k, filters=filters
         )
 
     def _fallback_answer(self, _search_results: list[SearchResult]) -> str:

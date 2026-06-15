@@ -1085,8 +1085,8 @@ class OptimalService:
         if not plugins:
             return []
 
-        # Embed the query ONCE (HyDE + embed), then run every index's vector
-        # search concurrently — instead of each index re-embedding in series.
+        # Embed the query ONCE, then run every index's hybrid search
+        # concurrently — instead of each index re-embedding in series.
         try:
             query_embedding = await plugins[0][1].compute_query_embedding(query)
         except Exception as e:
@@ -1095,7 +1095,7 @@ class OptimalService:
 
         outcomes = await asyncio.gather(
             *(
-                plugin.search_with_embedding(query_embedding, top_k=top_k)
+                plugin.search_with_embedding(query_embedding, query, top_k=top_k)
                 for _, plugin in plugins
             ),
             return_exceptions=True,
@@ -1107,18 +1107,21 @@ class OptimalService:
 
     async def _search_single_index(
         self,
-        index_type: IndexType,
-        plugin: BaseIndexPlugin,
+        entry: tuple[IndexType, BaseIndexPlugin],
         query_embedding: list[float],
+        query_text: str,
         top_k: int,
         buf: _QueryAggregationBuffer,
     ) -> None:
         """Search one index with a pre-computed embedding; update buf in place."""
+        index_type, plugin = entry
         if await plugin.count() == 0:
             logger.debug("Skipping empty index", index_type=index_type.value)
             return
 
-        outcome = await plugin.search_with_embedding(query_embedding, top_k=top_k)
+        outcome = await plugin.search_with_embedding(
+            query_embedding, query_text, top_k=top_k
+        )
         if outcome.success:
             buf.stats[index_type.value] = len(outcome.results)
             buf.citations.extend(outcome.results)
@@ -1148,7 +1151,9 @@ class OptimalService:
 
         await asyncio.gather(
             *(
-                self._search_single_index(it, plugin, query_embedding, top_k, buf)
+                self._search_single_index(
+                    (it, plugin), query_embedding, query, top_k, buf
+                )
                 for it, plugin in plugins
             ),
             return_exceptions=True,

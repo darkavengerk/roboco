@@ -102,7 +102,7 @@ class RAGHealthResponse(BaseModel):
 
     healthy: bool
     embedding_status: str = Field(..., description="Embedding model status")
-    llm_status: str = Field(..., description="LLM (HyDE) status")
+    llm_status: str = Field(..., description="LLM (answer synthesis) status")
     vector_store_status: str = Field(..., description="Vector store status")
     details: dict[str, Any] = Field(default_factory=dict)
 

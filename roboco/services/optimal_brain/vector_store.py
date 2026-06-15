@@ -134,7 +134,9 @@ class VectorStore:
                     source     TEXT        NOT NULL,
                     embedding  vector({self._vector_dimension}),
                     metadata   JSONB       NOT NULL DEFAULT '{{}}',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    tsv        tsvector GENERATED ALWAYS AS
+                               (to_tsvector('english', content)) STORED
                 )
                 """
             )
@@ -145,6 +147,14 @@ class VectorStore:
                 ON {self._table_name}
                 USING ivfflat (embedding vector_cosine_ops)
                 WITH (lists = 100)
+                """
+            )
+            # GIN index for the full-text (keyword) half of hybrid search.
+            await conn.execute(
+                f"""
+                CREATE INDEX IF NOT EXISTS {self._table_name}_tsv_idx
+                ON {self._table_name}
+                USING gin (tsv)
                 """
             )
 
@@ -267,6 +277,96 @@ class VectorStore:
                 ),
                 emb_str,
                 min_chunk_length,
+                top_k,
+            )
+
+        return [
+            Citation(
+                chunk=row["content"],
+                source=row["source"],
+                score=float(row["score"]),
+                metadata=_as_dict(row["metadata"]),
+            )
+            for row in rows
+        ]
+
+    async def hybrid_search(
+        self,
+        embedding: list[float],
+        query_text: str,
+        top_k: int = 5,
+        min_chunk_length: int = 100,
+        candidate_pool: int = 50,
+    ) -> list[Citation]:
+        """Hybrid retrieval: fuse pgvector cosine with full-text keyword search.
+
+        Per chunk the score is
+        ``min(1, cosine + 0.3 * normalized_ts_rank)``: a vector-only match keeps
+        its cosine score (so downstream thresholds — decisions/reviewer — are
+        unchanged), a keyword match adds a bounded boost (the recall win), and a
+        keyword-only match stays low (<= 0.3). Empty/garbage ``query_text``
+        degrades gracefully to pure vector search.
+
+        Args:
+            embedding:        Query embedding vector.
+            query_text:       Raw query for the full-text half.
+            top_k:            Maximum number of fused results to return.
+            min_chunk_length: Minimum character length of returned chunks.
+            candidate_pool:   Per-side candidate count before fusion.
+        """
+        pool = self._require_pool()
+        emb_str = _vec_to_str(embedding)
+        cand = max(candidate_pool, top_k)
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                self._q(
+                    """
+                    WITH q AS (
+                        SELECT websearch_to_tsquery('english', $2) AS tsq
+                    ),
+                    vec AS (
+                        SELECT id, content, source, metadata,
+                               1 - (embedding <=> $1::vector) AS cos
+                        FROM {table}
+                        WHERE length(content) >= $3 AND embedding IS NOT NULL
+                        ORDER BY embedding <=> $1::vector
+                        LIMIT $4
+                    ),
+                    kw AS (
+                        SELECT c.id, c.content, c.source, c.metadata,
+                               ts_rank(c.tsv, q.tsq) AS kw_rank
+                        FROM {table} c, q
+                        WHERE c.tsv @@ q.tsq AND length(c.content) >= $3
+                        ORDER BY kw_rank DESC
+                        LIMIT $4
+                    ),
+                    maxk AS (SELECT NULLIF(MAX(kw_rank), 0) AS m FROM kw),
+                    fused AS (
+                        SELECT COALESCE(vec.id, kw.id) AS id,
+                               COALESCE(vec.content, kw.content) AS content,
+                               COALESCE(vec.source, kw.source) AS source,
+                               COALESCE(vec.metadata, kw.metadata) AS metadata,
+                               COALESCE(vec.cos, 0) AS cos,
+                               COALESCE(kw.kw_rank, 0) AS kw_rank
+                        FROM vec FULL OUTER JOIN kw ON vec.id = kw.id
+                    )
+                    SELECT content, source, metadata,
+                           LEAST(
+                               1.0,
+                               cos + 0.3 * COALESCE(
+                                   kw_rank / (SELECT m FROM maxk), 0
+                               )
+                           ) AS score
+                    FROM fused
+                    ORDER BY score DESC
+                    LIMIT $5
+                    """
+                ),
+                emb_str,
+                query_text,
+                min_chunk_length,
+                cand,
                 top_k,
             )
 
