@@ -2,6 +2,7 @@
 Ollama Embedder
 
 Provides embedding generation using Ollama's native API.
+Drop-in replacement for the embedding layer when using Ollama models.
 
 Features:
 - Parallel batch processing for faster embedding
@@ -10,11 +11,16 @@ Features:
 - Retry logic for transient failures
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import time
-from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import httpx
 
@@ -25,7 +31,6 @@ from roboco.services.exceptions import (
     RateLimitError,
     parse_retry_after_header,
 )
-from roboco.services.optimal_brain.text_chunker import Chunk
 
 logger = get_logger(__name__)
 
@@ -38,7 +43,7 @@ RATE_LIMIT_MAX_RETRIES = 5
 
 # Parallel processing configuration
 MAX_CONCURRENT_BATCHES = 4  # Number of batches to process in parallel
-DEFAULT_BATCH_SIZE = 32  # default batch size for Ollama embedding requests
+DEFAULT_BATCH_SIZE = 32  # Default batch size
 
 # Keep the embedding model resident in Ollama. It runs on CPU and Ollama's
 # default 5-min idle unload means a `say` after an idle window pays a cold 2.4 GB
@@ -46,6 +51,19 @@ DEFAULT_BATCH_SIZE = 32  # default batch size for Ollama embedding requests
 # embed retry window and dropped the background conversation ingest. -1 = never
 # unload (sent as `keep_alive` on every /api/embed request).
 EMBED_KEEP_ALIVE = -1
+
+
+@dataclass
+class Chunk:
+    """Lightweight document chunk carrying text and its embedding vector.
+
+    Replaces the piragi.types.Chunk dependency so this module compiles
+    without piragi installed.
+    """
+
+    text: str
+    embedding: list[float] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class OllamaEmbedderError(Exception):

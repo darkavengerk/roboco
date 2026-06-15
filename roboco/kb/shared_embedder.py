@@ -1,19 +1,21 @@
 """
 Shared Embedder Singleton
 
-Provides a single OllamaEmbedder instance shared across all index plugins.
+Provides a single embedder instance shared across all index plugins.
+Supports Ollama models (qwen3-embedding, ...) via OllamaEmbedder.
 """
 
+from __future__ import annotations
+
 import asyncio
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Protocol, Union
+from typing import TYPE_CHECKING, Protocol
 
 from roboco.config import settings
+from roboco.kb.ollama_embedder import Chunk, OllamaEmbedder
 from roboco.logging import get_logger
-from roboco.services.optimal_brain.text_chunker import Chunk
 
 if TYPE_CHECKING:
-    from roboco.services.optimal_brain.ollama_embedder import OllamaEmbedder
+    from collections.abc import Callable
 
 logger = get_logger(__name__)
 
@@ -59,7 +61,7 @@ def _is_ollama_model(model: str) -> bool:
 class _SharedEmbedderHolder:
     """Holder class for shared embedder state (avoids global statement)."""
 
-    instance: Union["OllamaEmbedder", None] = None
+    instance: OllamaEmbedder | None = None
     lock: asyncio.Lock | None = None
 
     @classmethod
@@ -72,29 +74,25 @@ class _SharedEmbedderHolder:
 
 async def get_shared_embedder(
     model: str | None = None,
-    device: str | None = None,
-    timeout: float = 60.0,
+    _device: str | None = None,
+    _timeout: float = 60.0,
 ) -> Embedder:
-    """Get or create the shared OllamaEmbedder instance.
+    """Get or create the shared embedder instance.
 
-    Thread-safe singleton that loads the model only once.  All embedding is
-    performed via Ollama over HTTP; no local model weights are loaded.
+    Thread-safe singleton that loads the model only once.
+    Uses OllamaEmbedder for all embedding models (no piragi dependency).
 
     Args:
-        model: Embedding model name (default: from settings).
-        device: Ignored — kept for API compatibility.
-        timeout: Ignored — Ollama embedder connects lazily; kept for
-                 API compatibility.
+        model: Embedding model name (default: from settings)
+        _device: Unused — kept for API compatibility with the old signature
+        _timeout: Unused — Ollama handles load timing server-side
 
     Returns:
-        Shared :class:`~roboco.services.optimal_brain.ollama_embedder.OllamaEmbedder`
-        instance.
+        Shared embedder instance (OllamaEmbedder)
 
     Raises:
-        RuntimeError: If the embedder instance could not be constructed.
+        RuntimeError: If model loading fails
     """
-    _ = device
-    _ = timeout
 
     if _SharedEmbedderHolder.instance is not None:
         return _SharedEmbedderHolder.instance
@@ -102,18 +100,16 @@ async def get_shared_embedder(
     async with _SharedEmbedderHolder.get_lock():
         # Double-check after acquiring lock (another coroutine may have created it)
         if _SharedEmbedderHolder.instance is None:
-            model = model or settings.default_embedding_model
+            resolved_model = model or settings.default_embedding_model
 
             logger.info(
                 "Creating shared Ollama embedder",
-                model=model,
+                model=resolved_model,
                 base_url=settings.ollama_base_url,
             )
 
-            from roboco.services.optimal_brain.ollama_embedder import OllamaEmbedder
-
             _SharedEmbedderHolder.instance = OllamaEmbedder(
-                model=model,
+                model=resolved_model,
                 base_url=settings.ollama_base_url,
             )
 
@@ -123,9 +119,9 @@ async def get_shared_embedder(
                 raise RuntimeError(
                     "Shared embedder construction succeeded but instance is None"
                 )
-            _validate_embedder_protocol(_SharedEmbedderHolder.instance, model)
+            _validate_embedder_protocol(_SharedEmbedderHolder.instance, resolved_model)
 
-            logger.info("Shared embedder created successfully", model=model)
+            logger.info("Shared embedder created successfully", model=resolved_model)
 
         if _SharedEmbedderHolder.instance is None:
             raise RuntimeError("Shared embedder not initialized")
