@@ -854,34 +854,33 @@ class BaseIndexPlugin(ABC):
                 break
         return results
 
-    async def search(
+    async def compute_query_embedding(self, query: str) -> list[float]:
+        """Embed a query (incl. HyDE) once.
+
+        Lets the service compute one embedding and fan it out across every
+        index, instead of each index re-running HyDE + embed sequentially.
+        """
+        return await self._compute_query_embedding(query)
+
+    async def search_with_embedding(
         self,
-        query: str,
+        query_embedding: list[float],
         top_k: int = 5,
         filters: dict[str, Any] | None = None,
     ) -> SearchOutcome:
-        """
-        Search the index.
+        """Search using a pre-computed query embedding (skips HyDE/embed).
 
-        Args:
-            query: Natural language search query
-            top_k: Number of results to return
-            filters: Optional metadata filters
-
-        Returns:
-            SearchOutcome with results and success status
+        Splitting embed from fetch lets the service embed once and run every
+        index's vector search concurrently.
         """
         import time
 
         start_time = time.time()
-
         try:
-            query_embedding = await self._compute_query_embedding(query)
             chunks = await self._fetch_citations(
                 query_embedding, top_k, has_filters=bool(filters)
             )
             results = self._citations_to_results(chunks, top_k, filters)
-
             elapsed_ms = (time.time() - start_time) * 1000
             return SearchOutcome(
                 results=results,
@@ -889,7 +888,6 @@ class BaseIndexPlugin(ABC):
                 index_type=self.index_type,
                 search_time_ms=elapsed_ms,
             )
-
         except Exception as e:
             elapsed_ms = (time.time() - start_time) * 1000
             logger.warning(
@@ -905,6 +903,37 @@ class BaseIndexPlugin(ABC):
                 index_type=self.index_type,
                 search_time_ms=elapsed_ms,
             )
+
+    async def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        filters: dict[str, Any] | None = None,
+    ) -> SearchOutcome:
+        """Search the index: embed the query, then run the vector search."""
+        import time
+
+        start_time = time.time()
+        try:
+            query_embedding = await self._compute_query_embedding(query)
+        except Exception as e:
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.warning(
+                "Search failed",
+                index_type=self.index_type.value,
+                error=str(e),
+                search_time_ms=elapsed_ms,
+            )
+            return SearchOutcome(
+                results=[],
+                success=False,
+                error_message=str(e),
+                index_type=self.index_type,
+                search_time_ms=elapsed_ms,
+            )
+        return await self.search_with_embedding(
+            query_embedding, top_k=top_k, filters=filters
+        )
 
     def _fallback_answer(self, _search_results: list[SearchResult]) -> str:
         """

@@ -1034,6 +1034,30 @@ class OptimalService:
     # SEARCH OPERATIONS
     # =========================================================================
 
+    @staticmethod
+    def _collect_outcomes(
+        plugins: list[tuple[IndexType, BaseIndexPlugin]],
+        outcomes: list[Any],
+    ) -> list[SearchResult]:
+        """Flatten gathered per-index search outcomes; log and skip failures."""
+        results: list[SearchResult] = []
+        for (index_type, _), outcome in zip(plugins, outcomes, strict=True):
+            if isinstance(outcome, BaseException):
+                logger.warning(
+                    "Search failed for index",
+                    index_type=index_type.value,
+                    error=str(outcome),
+                )
+            elif outcome.success:
+                results.extend(outcome.results)
+            else:
+                logger.warning(
+                    "Search failed for index",
+                    index_type=index_type.value,
+                    error=outcome.error_message,
+                )
+        return results
+
     async def search(
         self,
         query: str,
@@ -1054,46 +1078,47 @@ class OptimalService:
         if not self._initialized:
             raise RuntimeError("OptimalService not initialized")
 
-        results: list[SearchResult] = []
         index_types = (
             context.index_types if context and context.index_types else list(IndexType)
         )
+        plugins = [(it, self._plugins[it]) for it in index_types if it in self._plugins]
+        if not plugins:
+            return []
 
-        for index_type in index_types:
-            plugin = self._plugins.get(index_type)
-            if plugin:
-                outcome = await plugin.search(query=query, top_k=top_k)
-                if outcome.success:
-                    results.extend(outcome.results)
-                else:
-                    logger.warning(
-                        "Search failed for index",
-                        index_type=index_type.value,
-                        error=outcome.error_message,
-                    )
+        # Embed the query ONCE (HyDE + embed), then run every index's vector
+        # search concurrently — instead of each index re-embedding in series.
+        try:
+            query_embedding = await plugins[0][1].compute_query_embedding(query)
+        except Exception as e:
+            logger.warning("Query embedding failed", error=str(e))
+            return []
 
-        # Sort by score descending
+        outcomes = await asyncio.gather(
+            *(
+                plugin.search_with_embedding(query_embedding, top_k=top_k)
+                for _, plugin in plugins
+            ),
+            return_exceptions=True,
+        )
+
+        results = self._collect_outcomes(plugins, outcomes)
         results.sort(key=lambda r: r.score, reverse=True)
         return results[: top_k * len(index_types)]
 
     async def _search_single_index(
         self,
         index_type: IndexType,
-        query: str,
+        plugin: BaseIndexPlugin,
+        query_embedding: list[float],
         top_k: int,
         buf: _QueryAggregationBuffer,
     ) -> None:
-        """Search one index and update aggregate buffers in place."""
-        plugin = self._plugins.get(index_type)
-        if not plugin:
-            return
-
-        count = await plugin.count()
-        if count == 0:
+        """Search one index with a pre-computed embedding; update buf in place."""
+        if await plugin.count() == 0:
             logger.debug("Skipping empty index", index_type=index_type.value)
             return
 
-        outcome = await plugin.search(query=query, top_k=top_k)
+        outcome = await plugin.search_with_embedding(query_embedding, top_k=top_k)
         if outcome.success:
             buf.stats[index_type.value] = len(outcome.results)
             buf.citations.extend(outcome.results)
@@ -1109,11 +1134,25 @@ class OptimalService:
     async def _aggregate_citations(
         self, index_types: list[IndexType], query: str, top_k: int
     ) -> tuple[list[SearchResult], dict[str, int], dict[str, str]]:
-        """Run search across the requested indexes and aggregate citations."""
+        """Embed once, then search the requested indexes concurrently."""
         buf = _QueryAggregationBuffer()
+        plugins = [(it, self._plugins[it]) for it in index_types if it in self._plugins]
+        if not plugins:
+            return buf.citations, buf.stats, buf.errors
 
-        for index_type in index_types:
-            await self._search_single_index(index_type, query, top_k, buf)
+        try:
+            query_embedding = await plugins[0][1].compute_query_embedding(query)
+        except Exception as e:
+            logger.warning("RAG query embedding failed", error=str(e))
+            return buf.citations, buf.stats, buf.errors
+
+        await asyncio.gather(
+            *(
+                self._search_single_index(it, plugin, query_embedding, top_k, buf)
+                for it, plugin in plugins
+            ),
+            return_exceptions=True,
+        )
 
         logger.info(
             "RAG search complete",
