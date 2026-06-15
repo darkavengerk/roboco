@@ -90,6 +90,11 @@ _CEO_NOTIFY_THRESHOLD = 10
 # below and roboco/agent_sdk/intake_main.py.
 INTAKE_AGENT_ID = "intake-1"
 
+# The Secretary agent: a single seeded, persistent chief-of-staff container the
+# CEO chats with (like intake), but with gated CEO authority. One container at a
+# time. Seeded in identity.AGENTS; see roboco/agent_sdk/secretary_main.py.
+SECRETARY_AGENT_ID = "secretary-1"
+
 # Role -> Image mapping
 # Specialized images extend the base with role-specific tools
 AGENT_IMAGES: dict[str, str] = {
@@ -118,6 +123,8 @@ AGENT_IMAGES: dict[str, str] = {
     "auditor": "roboco-agent-pm",
     # Intake — persistent Agent-SDK driver, not a one-shot `claude -p`.
     INTAKE_AGENT_ID: "roboco-agent-prompter",
+    # Secretary — persistent Agent-SDK driver with gated CEO authority.
+    SECRETARY_AGENT_ID: "roboco-agent-secretary",
 }
 
 
@@ -163,6 +170,27 @@ class _IntakeRunSpec:
     cwd: str
     cli_model: str
     api_url: str
+    provider_base_url: str | None
+    provider_auth_token: str | None
+
+
+@dataclass
+class _SecretaryRunSpec:
+    """Inputs for ``_build_secretary_run_cmd`` (mirrors ``_IntakeRunSpec``).
+
+    Adds the agent uuid + HMAC token: unlike intake, the Secretary's tools call
+    the backend, so the container needs an authenticated identity.
+    """
+
+    container_name: str
+    image: str
+    hosts: dict[str, str | None]
+    session_id: str
+    cwd: str
+    cli_model: str
+    api_url: str
+    agent_uuid: str
+    agent_token: str
     provider_base_url: str | None
     provider_auth_token: str | None
 
@@ -566,6 +594,7 @@ class AgentOrchestrator:
         # Rate-limit probe loop: 30-second interval, scans Redis for all
         # rate-limited providers and resolves waiting agents on success.
         self._rate_limit_probe_task: asyncio.Task | None = None
+        self._strategy_engine_task: asyncio.Task | None = None
         # Tracks which providers have already received a CEO notification
         # during the current rate-limit episode.  Cleared when the probe
         # succeeds and the rate limit is lifted (tracker.clear() path).
@@ -643,6 +672,7 @@ class AgentOrchestrator:
         self._dispatcher_task = asyncio.create_task(self._dispatcher_loop())
         self._sweeper_task = asyncio.create_task(self._sweeper_loop())
         self._rate_limit_probe_task = asyncio.create_task(self._rate_limit_probe_loop())
+        self._strategy_engine_task = asyncio.create_task(self._strategy_engine_loop())
 
         logger.info(
             "Orchestrator started",
@@ -674,6 +704,11 @@ class AgentOrchestrator:
             self._rate_limit_probe_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._rate_limit_probe_task
+
+        if self._strategy_engine_task:
+            self._strategy_engine_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._strategy_engine_task
 
         # Stop all agents
         for agent_id in list(self._instances.keys()):
@@ -2048,6 +2083,28 @@ class AgentOrchestrator:
                 "env": mcp_env,
             }
 
+        # Web research — external search/fetch for Board + PM roles. The
+        # provider key stays server-side (the route holds it); the agent only
+        # ever talks to the backend, so the container needs no external egress.
+        research_roles = (
+            "cell_pm",
+            "main_pm",
+            "product_owner",
+            "head_marketing",
+        )
+        if settings.research_enabled and agent_role in research_roles:
+            mcp_servers["roboco-search"] = {
+                "command": "uv",
+                "args": [
+                    "run",
+                    "python",
+                    "-m",
+                    "roboco.mcp.search_server",
+                    agent_id,
+                ],
+                "env": mcp_env,
+            }
+
         config: dict[str, Any] = {"mcpServers": mcp_servers}
 
         # Write to shared config directory (mounted in both orchestrator and agents)
@@ -2770,6 +2827,209 @@ class AgentOrchestrator:
         get_live_registry().close(session_id)
         await self.stop_agent(INTAKE_AGENT_ID, graceful=True)
         logger.info("Intake session reaped", session_id=session_id)
+
+    # ------------------------------------------------------------------ #
+    # Secretary live session (mirrors intake; no scope clone; auth token)
+    # ------------------------------------------------------------------ #
+
+    async def start_secretary_session(
+        self, session_id: str, *, initial_message: str | None = None
+    ) -> None:
+        """Non-blocking start: open the relay now, spawn the container in the bg."""
+        from roboco.services.prompter_live import get_live_registry
+
+        get_live_registry().open(session_id, SECRETARY_AGENT_ID)
+        self._schedule_bg(
+            self._spawn_secretary_container_guarded(
+                session_id, initial_message=initial_message
+            )
+        )
+
+    async def spawn_secretary_session(
+        self, session_id: str, *, initial_message: str | None = None
+    ) -> AgentInstance:
+        """Spawn the Secretary container synchronously (internal callers/tests)."""
+        from roboco.services.prompter_live import get_live_registry
+
+        get_live_registry().open(session_id, SECRETARY_AGENT_ID)
+        return await self._spawn_secretary_container(
+            session_id, initial_message=initial_message
+        )
+
+    async def _spawn_secretary_container_guarded(
+        self, session_id: str, *, initial_message: str | None
+    ) -> None:
+        """Background spawn; surface failures on the relay, not silently."""
+        from roboco.services.prompter_live import get_live_registry
+
+        try:
+            await self._spawn_secretary_container(
+                session_id, initial_message=initial_message
+            )
+        except Exception as exc:
+            logger.error(
+                "Secretary container spawn failed",
+                session_id=session_id,
+                error=str(exc),
+            )
+            registry = get_live_registry()
+            registry.push(
+                session_id,
+                {"kind": "error", "text": f"Couldn't start the Secretary: {exc}"},
+            )
+            registry.close(session_id)
+
+    async def _spawn_secretary_container(
+        self, session_id: str, *, initial_message: str | None
+    ) -> AgentInstance:
+        """Launch the Secretary SDK-driver container and track the instance.
+
+        Unlike intake there is no workspace scope to clone — the Secretary reads
+        company state through the API, so its cwd is the baked ``/app`` tree. It
+        gets an HMAC agent token so its directive tools authenticate as the
+        Secretary role.
+        """
+        from roboco.agents_config import issue_agent_token
+        from roboco.foundation.identity import AGENTS
+
+        if SECRETARY_AGENT_ID in self._instances:
+            await self.stop_agent(SECRETARY_AGENT_ID, graceful=False)
+
+        prompt_path = self._generate_composed_prompt(SECRETARY_AGENT_ID)
+        route = await self._resolve_agent_route(SECRETARY_AGENT_ID)
+        cli_model = _resolve_agent_cli_model(
+            route.provider_type.value, route.model_name
+        )
+        api_url = (
+            "http://roboco-orchestrator:8000"
+            if PROJECT_HOST_PATH
+            else f"http://127.0.0.1:{settings.port}"
+        )
+
+        await self._ensure_agent_image(SECRETARY_AGENT_ID)
+        container_name = f"roboco-agent-{SECRETARY_AGENT_ID}"
+        await self._remove_container(container_name)
+
+        agent_uuid = str(AGENTS[SECRETARY_AGENT_ID].uuid)
+        cmd = self._build_secretary_run_cmd(
+            _SecretaryRunSpec(
+                container_name=container_name,
+                image=get_agent_image(SECRETARY_AGENT_ID),
+                hosts=self._resolve_secretary_host_paths(),
+                session_id=session_id,
+                cwd="/app",
+                cli_model=cli_model,
+                api_url=api_url,
+                agent_uuid=agent_uuid,
+                agent_token=issue_agent_token(agent_uuid, "secretary", ""),
+                provider_base_url=route.base_url,
+                provider_auth_token=route.auth_token,
+            )
+        )
+        container_id = await self._run_container_cmd(cmd)
+
+        config = AgentConfig(
+            agent_id=SECRETARY_AGENT_ID,
+            blueprint_path=prompt_path,
+            model=route.model_name,
+            git_context=None,
+        )
+        instance = AgentInstance(
+            agent_id=SECRETARY_AGENT_ID,
+            state=AgentState.ACTIVE,
+            config=config,
+            current_task_id=None,
+        )
+        instance.container_id = container_id
+        instance.started_at = datetime.now(UTC)
+        instance.last_activity = datetime.now(UTC)
+        self._instances[SECRETARY_AGENT_ID] = instance
+
+        logger.info(
+            "Secretary session spawned",
+            session_id=session_id,
+            container_id=container_id[:12],
+        )
+        self._fire_audit(
+            event_type="agent.spawned",
+            agent_slug=SECRETARY_AGENT_ID,
+            details={"session_id": session_id},
+        )
+        if initial_message:
+            self._schedule_intake_first_message(session_id, initial_message)
+        return instance
+
+    async def reap_secretary_session(self, session_id: str) -> None:
+        """End a live Secretary chat: close the relay and stop the container."""
+        from roboco.services.prompter_live import get_live_registry
+
+        get_live_registry().close(session_id)
+        await self.stop_agent(SECRETARY_AGENT_ID, graceful=True)
+        logger.info("Secretary session reaped", session_id=session_id)
+
+    def _resolve_secretary_host_paths(self) -> dict[str, str | None]:
+        """Host paths for the Secretary container's mounts (claude + prompt).
+
+        No workspaces mount: the Secretary reads company state via the API and
+        runs from the baked ``/app`` tree.
+        """
+        if PROJECT_HOST_PATH:
+            return {
+                "claude": CLAUDE_AUTH_HOST_PATH,
+                "prompt": (
+                    f"{DATA_HOST_PATH}/prompts-generated/{SECRETARY_AGENT_ID}-prompt.md"
+                ),
+            }
+        return {
+            "claude": CLAUDE_AUTH_HOST_PATH,
+            "prompt": str(
+                Path(tempfile.gettempdir())
+                / "roboco-prompts"
+                / f"{SECRETARY_AGENT_ID}-prompt.md"
+            ),
+        }
+
+    @staticmethod
+    def _build_secretary_run_cmd(spec: _SecretaryRunSpec) -> list[str]:
+        """Compose the `docker run` argv for the persistent Secretary container."""
+        cmd: list[str] = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            spec.container_name,
+            "--network",
+            AGENT_NETWORK,
+            "-v",
+            f"{spec.hosts['claude']}:/home/agent/.claude",
+        ]
+        AgentOrchestrator._append_claude_json_mount(cmd, spec.hosts)
+        cmd.extend(
+            [
+                "-v",
+                f"{spec.hosts['prompt']}:/app/system-prompt.md:ro",
+                "-e",
+                f"ROBOCO_AGENT_ID={spec.agent_uuid}",
+                "-e",
+                "ROBOCO_AGENT_ROLE=secretary",
+                "-e",
+                f"ROBOCO_AGENT_TOKEN={spec.agent_token}",
+                "-e",
+                f"ROBOCO_API_URL={spec.api_url}",
+                "-e",
+                f"ROBOCO_SECRETARY_SESSION_ID={spec.session_id}",
+                "-e",
+                f"ROBOCO_WORKSPACE={spec.cwd}",
+                "-e",
+                f"CLAUDE_CODE_SUBAGENT_MODEL={spec.cli_model}",
+            ]
+        )
+        if spec.provider_base_url:
+            cmd.extend(["-e", f"ANTHROPIC_BASE_URL={spec.provider_base_url}"])
+        if spec.provider_auth_token:
+            cmd.extend(["-e", f"ANTHROPIC_AUTH_TOKEN={spec.provider_auth_token}"])
+        cmd.append(spec.image)
+        return cmd
 
     async def _clone_intake_scope(
         self, project_slug: str | None, product_id: str | None
@@ -4228,6 +4488,29 @@ Start by:
     # =========================================================================
     # RATE-LIMIT PROBE LOOP
     # =========================================================================
+
+    async def _strategy_engine_loop(self) -> None:
+        """Engine 2: periodically surface goal drift / idle / stranded work.
+
+        Dormant by default — returns immediately unless ``strategy_engine_enabled``
+        is set, so it adds zero behaviour to a standard deployment. Notify-only;
+        it never spends or builds.
+        """
+        if not settings.strategy_engine_enabled:
+            return
+        from roboco.db import get_db_context
+        from roboco.services.strategy_engine import get_strategy_engine
+
+        interval = settings.strategy_engine_interval_seconds
+        while self._running:
+            try:
+                await asyncio.sleep(interval)
+                async with get_db_context() as db:
+                    await get_strategy_engine(db).run_cycle()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("strategy engine cycle failed")
 
     async def _rate_limit_probe_loop(self) -> None:
         """Background loop: probe rate-limited providers every ~30 seconds.

@@ -17,6 +17,8 @@ from roboco.api.routes.a2a import router as a2a_router
 from roboco.api.routes.a2a import wellknown_router as a2a_wellknown_router
 from roboco.api.routes.agents import router as agents_router
 from roboco.api.routes.channels import router as channels_router
+from roboco.api.routes.cockpit import router as cockpit_router
+from roboco.api.routes.company_goals import router as company_goals_router
 from roboco.api.routes.dashboard import router as dashboard_router
 from roboco.api.routes.docs import router as docs_router
 from roboco.api.routes.git import router as git_router
@@ -28,10 +30,14 @@ from roboco.api.routes.messages import router as messages_router
 from roboco.api.routes.notifications import router as notifications_router
 from roboco.api.routes.optimal import router as optimal_router
 from roboco.api.routes.orchestrator import router as orchestrator_router
+from roboco.api.routes.pitch import router as pitch_router
 from roboco.api.routes.product import router as product_router
 from roboco.api.routes.project import router as project_router
 from roboco.api.routes.prompter_live import router as prompter_live_router
 from roboco.api.routes.provider import router as provider_router
+from roboco.api.routes.research import router as research_router
+from roboco.api.routes.secretary import router as secretary_router
+from roboco.api.routes.secretary_live import router as secretary_live_router
 from roboco.api.routes.sessions import router as sessions_router
 from roboco.api.routes.settings import router as settings_router
 from roboco.api.routes.stream import router as stream_router
@@ -229,6 +235,12 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(
+        company_goals_router,
+        prefix=f"{api_prefix}/company-goals",
+        tags=["Company"],
+    )
+
+    app.include_router(
         messages_router,
         prefix=f"{api_prefix}/messages",
         tags=["Messages"],
@@ -258,6 +270,40 @@ def create_app() -> FastAPI:
         journals_router,
         prefix=f"{api_prefix}/journals",
         tags=["Journals"],
+    )
+
+    # Web research — pluggable external search/fetch for Board + PM agents.
+    app.include_router(
+        research_router,
+        prefix=f"{api_prefix}/research",
+        tags=["Research"],
+    )
+
+    # Cockpit — the CEO's read-only "is the business winning?" summary.
+    app.include_router(
+        cockpit_router,
+        prefix=f"{api_prefix}/cockpit",
+        tags=["Cockpit"],
+    )
+
+    # Pitches — Board proposals + CEO approve -> auto-provision origination path.
+    app.include_router(
+        pitch_router,
+        prefix=f"{api_prefix}/pitches",
+        tags=["Pitches"],
+    )
+
+    # Secretary — the CEO's chief-of-staff: company-state reads + gated directives.
+    app.include_router(
+        secretary_router,
+        prefix=f"{api_prefix}/secretary",
+        tags=["Secretary"],
+    )
+    # Secretary live chat — panel <-> Secretary container bridge.
+    app.include_router(
+        secretary_live_router,
+        prefix=f"{api_prefix}/secretary",
+        tags=["Secretary"],
     )
 
     # Phase 5: Management - Tasks, Kanban, Dashboards

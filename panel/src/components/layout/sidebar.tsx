@@ -22,6 +22,10 @@ import {
   Database,
   Cpu,
   Sparkles,
+  Target,
+  Briefcase,
+  Lightbulb,
+  Gauge,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,15 +34,19 @@ import { useUIStore } from "@/store";
 export const navItems = [
   // Dashboard
   { title: "Overview", href: "/overview", icon: LayoutDashboard },
+  { title: "Cockpit", href: "/cockpit", icon: Gauge },
+  { title: "Company Goals", href: "/company-goals", icon: Target },
 
   // Work Management
   { title: "Tasks", href: "/tasks", icon: ListTodo },
   { title: "Kanban", href: "/kanban", icon: Kanban },
   { title: "Task Assistant", href: "/prompter", icon: Sparkles },
+  { title: "Secretary", href: "/secretary", icon: Briefcase },
 
   // Development
   { title: "Projects", href: "/projects", icon: FolderGit2 },
   { title: "Products", href: "/products", icon: Boxes },
+  { title: "Pitches", href: "/pitches", icon: Lightbulb },
   { title: "Git", href: "/git", icon: GitBranch },
 
   // Team & Reference

@@ -557,6 +557,80 @@ class ProductProjectTable(Base):
     )
 
 
+class PitchTable(Base):
+    """A Board proposal the CEO approves to auto-provision a product.
+
+    Independent of the task lifecycle: a pitch carries its own status
+    (proposed -> provisioned/rejected/failed). On approval the provisioning
+    flow creates repos, registers Projects (+ a Product when multi-cell), and
+    seeds a Main-PM delivery task, recording the produced ids here.
+    """
+
+    __tablename__ = "pitches"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    slug: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False, index=True
+    )
+    problem: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_solution: Mapped[str] = mapped_column(Text, nullable=False)
+    target_cells: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="proposed", index=True
+    )
+    created_by: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    decided_by: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    decision_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provisioned_product_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    provisioned_project_ids: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True
+    )
+    seed_task_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=lambda: datetime.now(UTC), nullable=True
+    )
+
+
+class SecretaryDirectiveTable(Base):
+    """One action the Secretary took (or queued) on the CEO's behalf.
+
+    Direct (low-risk) directives are written already ``executed``; gated
+    (high-impact) ones are ``pending`` until the CEO confirms, then run. The
+    full row is the command audit trail.
+    """
+
+    __tablename__ = "secretary_directives"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", index=True
+    )
+    requested_by: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    decided_by: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 # =============================================================================
 # WORK SESSION TABLE
 # =============================================================================
@@ -1759,6 +1833,34 @@ class SystemSettingTable(Base):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+
+
+class CompanyGoalsTable(Base):
+    """Singleton company charter — north star, objectives, operating policy.
+
+    Exactly one row (the all-zeros singleton id). The CEO owns it (writes are
+    CEO-only via the API); it is injected compactly into every agent's
+    ``context_briefing`` so all work is goal-aware.
+    """
+
+    __tablename__ = "company_goals"
+
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    north_star: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    objectives: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    constraints: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    operating_policy: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+    updated_by: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
 
 class ModelAssignmentTable(Base):

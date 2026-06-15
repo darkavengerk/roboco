@@ -176,11 +176,135 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Web Research (pluggable external search/fetch for Board + PM roles)
+    # ==========================================================================
+    # Calls go agent -> roboco-search MCP -> /api/research/* -> ResearchService
+    # -> provider. The provider key lives ONLY in this server-side process; it
+    # is never injected into agent containers, and agents never egress — the
+    # provider's own API does. Unset key => graceful NullProvider (empty
+    # results, no hard fail).
+    research_enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch for the web-research capability. When false the "
+            "roboco-search MCP server is not mounted into any agent container."
+        ),
+    )
+    research_provider: str = Field(
+        default="tavily",
+        pattern="^(tavily|brave|exa|null)$",
+        description=(
+            "Web-search provider adapter. 'tavily' (LLM-native cited results "
+            "+ extract), 'brave' (independent index; no fetch), 'exa' "
+            "(neural search + contents), or 'null' (always-empty stub). "
+            "Swapping providers is a config change only."
+        ),
+    )
+    research_api_key: str | None = Field(
+        default=None,
+        description=(
+            "API key for the selected research provider. Server-side only — "
+            "never reaches an agent container. Unset => NullProvider."
+        ),
+    )
+    research_max_results: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Hard cap on web_search results per call (top-k clamp).",
+    )
+    research_fetch_max_chars: int = Field(
+        default=20000,
+        ge=500,
+        description="Hard cap on extracted characters returned by web_fetch.",
+    )
+    research_timeout_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        description="Per-request timeout for outbound provider HTTP calls.",
+    )
+    research_daily_quota_per_agent: int = Field(
+        default=50,
+        ge=1,
+        description=(
+            "Maximum web_search + web_fetch calls per agent per UTC day. "
+            "Tracked in Redis; fails open if Redis is unreachable."
+        ),
+    )
+
+    # ==========================================================================
     # Security
     # ==========================================================================
     encryption_key: str = Field(
         default="",
         description="Fernet encryption key for secrets.",
+    )
+
+    # ==========================================================================
+    # GitHub repository provisioning (pitch -> approve -> auto-provision)
+    # ==========================================================================
+    # The only place that CREATES GitHub repos (vs. clone/branch/PR existing
+    # ones). Server-side only; never injected into agent containers. Unset
+    # token/org => disabled => the pitch approval path is inert (no repo is
+    # created) until the CEO configures it.
+    provisioning_enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch for pitch auto-provisioning. With no token/org set "
+            "the capability is inert regardless of this flag."
+        ),
+    )
+    provisioning_token: str = Field(
+        default="",
+        description=(
+            "GitHub PAT used to create repos in the provisioning org "
+            "(needs repo + org admin scope). Server-side only."
+        ),
+    )
+    provisioning_org: str = Field(
+        default="",
+        description="GitHub organization where new repos are provisioned.",
+    )
+    github_api_base_url: str = Field(
+        default="https://api.github.com",
+        description="GitHub REST API base URL (override for GitHub Enterprise).",
+    )
+    provisioning_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Per-request timeout for outbound GitHub provisioning calls.",
+    )
+    provisioning_repo_private: bool = Field(
+        default=True,
+        description="Whether provisioned repos are created private.",
+    )
+
+    # ==========================================================================
+    # Autonomous strategy engine ("engine 2") — DORMANT by default
+    # ==========================================================================
+    # A separate background loop that watches the company against its standing
+    # goals and surfaces drift/idle/stranded work to the CEO (notify-only —
+    # never spends or builds). Default OFF: the loop never starts and the
+    # existing delivery lifecycle is untouched until the CEO opts in.
+    strategy_engine_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the autonomous strategy engine. OFF by default; "
+            "when off the background loop does not run at all."
+        ),
+    )
+    strategy_engine_interval_seconds: int = Field(
+        default=1800,
+        ge=60,
+        description="Seconds between strategy-engine assessment passes.",
+    )
+    strategy_stranded_blocked_minutes: int = Field(
+        default=120,
+        ge=5,
+        description=(
+            "A task blocked longer than this is surfaced as stranded "
+            "(needs a human decision)."
+        ),
     )
 
     # ==========================================================================

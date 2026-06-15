@@ -5,6 +5,46 @@ All notable changes to RoboCo are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-15
+
+### Added
+
+- **Business Goals — the company charter.** A single CEO-owned charter (north
+  star, prioritized objectives, constraints, operating policy) injected
+  compactly into every agent's briefing so all work is goal-aware.
+  `GET /api/company-goals` (any agent) / `PUT` (CEO-only), with a panel editor.
+- **Web research for the Board and PMs.** Pluggable `web_search` / `web_fetch`
+  exposed through a `roboco-search` MCP server backed by `/api/research/*`, with
+  Tavily / Brave / Exa adapters and a graceful no-op when no provider is
+  configured. The provider key stays server-side — agent containers never make
+  the external request themselves — and a per-agent daily quota (Redis,
+  fail-open) bounds cost.
+- **Pitch → approve → provision.** The Board proposes a product (a "pitch");
+  on CEO approval the system provisions a GitHub repo per target cell, registers
+  a Project for each (and a Product when multi-cell), and seeds one Main-PM
+  delivery task — reusing the existing Product / coordination-task machinery.
+  Default-off: with no provisioning token configured, approval is refused and
+  nothing is created.
+- **Autonomous strategy engine (dormant).** An optional second engine that
+  watches the company against its standing goals and surfaces drift, idle, and
+  long-stranded blocked work to the CEO (notify-only — it never spends, builds,
+  or auto-approves). Off by default; the delivery lifecycle is unchanged.
+- **The Secretary — the CEO's chief-of-staff.** A live conversational agent (its
+  own role, distinct from the Prompter) the CEO chats with in the panel. It acts
+  only under the CEO's command: it reads company state and relays dictated
+  messages directly, but high-impact actions — editing the charter, starting /
+  cancelling / overriding tasks, approving a pitch, announcements — are queued
+  and run only after the CEO's explicit confirmation (the gate list). Its
+  authority is HMAC-scoped to the secretary role and routed through the existing
+  enforcement, never a parallel permission model.
+- **The Cockpit.** A read-only `/cockpit` view answering "is the business
+  winning, what's happening, what needs me" — the charter, delivery counts,
+  30-day spend vs the budget cap, pending pitches, and the strategy engine's
+  signals. Honestly stamped `basis: proxy` (a proxy until real launches).
+
+All of these are additive and opt-in or default-off — an unconfigured deployment
+behaves exactly as before.
+
 ## [0.3.0] - 2026-06-15
 
 ### Added
@@ -114,6 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Next.js control panel (`panel/`) behind a single nginx entry point.
 - Multi-agent workspace management with per-project encrypted git tokens.
 
-[Released]: https://github.com/rennf93/roboco/compare/v0.2.0...HEAD
+[0.4.0]: https://github.com/rennf93/roboco/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rennf93/roboco/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rennf93/roboco/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rennf93/roboco/releases/tag/v0.1.0
