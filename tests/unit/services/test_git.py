@@ -294,6 +294,8 @@ async def test_create_pr_returns_pr_dict() -> None:
     _bind(svc, "_get_project_token_or_raise", AsyncMock(return_value="tok"))
     _bind(svc, "_parse_github_remote", MagicMock(return_value=("acme", "repo")))
     _bind(svc, "_record_pr_atomically", AsyncMock())
+    # parent == default → _ensure_base_on_remote short-circuits (no git call)
+    _bind(svc, "_project_default_branch", AsyncMock(return_value="master"))
 
     fake_resp = MagicMock()
     fake_resp.is_success = True
@@ -319,6 +321,80 @@ async def test_create_pr_raises_when_branch_not_found() -> None:
     _bind(svc, "_task_for_branch", AsyncMock(return_value=None))
     with pytest.raises(NotFoundError):
         await svc.create_pr("missing/branch", parent="master", is_root_pr=False)
+
+
+# ---------------------------------------------------------------------------
+# _ensure_base_on_remote: create the PR base branch if it's missing on origin
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ensure_base_creates_missing_base_off_default() -> None:
+    """Missing base branch is created on origin off the default branch tip."""
+    svc = _service()
+    _bind(svc, "_project_default_branch", AsyncMock(return_value="master"))
+    calls: list[list[str]] = []
+
+    async def fake_run_git(_ws: Path, args: list[str], **_: object) -> MagicMock:
+        calls.append(args)
+        if args[0] == "ls-remote":
+            return MagicMock(stdout="", returncode=0, stderr="")  # base absent
+        return MagicMock(stdout="", returncode=0, stderr="")
+
+    _bind(svc, "_run_git", fake_run_git)
+    out = await svc._ensure_base_on_remote(
+        Path("/tmp/ws"), "feature/frontend/abc--def", "roboco", "tok"
+    )
+    assert out == "feature/frontend/abc--def"
+    assert any(
+        a[0] == "push" and a[-1] == "origin/master:refs/heads/feature/frontend/abc--def"
+        for a in calls
+    ), calls
+
+
+@pytest.mark.asyncio
+async def test_ensure_base_passthrough_when_present() -> None:
+    """An existing base branch is returned unchanged with no push."""
+    svc = _service()
+    _bind(svc, "_project_default_branch", AsyncMock(return_value="master"))
+    pushed = False
+
+    async def fake_run_git(_ws: Path, args: list[str], **_: object) -> MagicMock:
+        nonlocal pushed
+        if args[0] == "push":
+            pushed = True
+        if args[0] == "ls-remote":
+            return MagicMock(
+                stdout="sha\trefs/heads/feature/x", returncode=0, stderr=""
+            )
+        return MagicMock(stdout="", returncode=0, stderr="")
+
+    _bind(svc, "_run_git", fake_run_git)
+    out = await svc._ensure_base_on_remote(
+        Path("/tmp/ws"), "feature/x", "roboco", "tok"
+    )
+    assert out == "feature/x"
+    assert pushed is False
+
+
+@pytest.mark.asyncio
+async def test_ensure_base_falls_back_to_default_when_create_fails() -> None:
+    """If the create push fails, retarget to the default branch (never 422)."""
+    svc = _service()
+    _bind(svc, "_project_default_branch", AsyncMock(return_value="master"))
+
+    async def fake_run_git(_ws: Path, args: list[str], **_: object) -> MagicMock:
+        if args[0] == "ls-remote":
+            return MagicMock(stdout="", returncode=0, stderr="")
+        if args[0] == "push":
+            return MagicMock(stdout="", returncode=1, stderr="denied")
+        return MagicMock(stdout="", returncode=0, stderr="")
+
+    _bind(svc, "_run_git", fake_run_git)
+    out = await svc._ensure_base_on_remote(
+        Path("/tmp/ws"), "feature/x", "roboco", "tok"
+    )
+    assert out == "master"
 
 
 # ---------------------------------------------------------------------------

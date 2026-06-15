@@ -2244,6 +2244,62 @@ class GitService(BaseService):
         )
         return await self.push(workspace)
 
+    async def _ensure_base_on_remote(
+        self,
+        workspace: Path,
+        base_branch: str,
+        project_slug: str,
+        git_token: str,
+    ) -> str:
+        """Ensure the PR base branch exists on origin; create it if missing.
+
+        ``open_pr`` (via :meth:`create_pr`) targets an ancestor task's branch
+        — e.g. the cell-PM integration branch — which may never have been
+        pushed (a PM paused before its first push, or the workspace was
+        wiped). GitHub then rejects the PR with 422 "base field invalid".
+        Rather than fail, create the missing base on the remote off the
+        default branch's tip so the PR has a valid base and the integration
+        layering is preserved. Fall back to the default branch only if the
+        create push itself fails.
+        """
+        default_branch = await self._project_default_branch(project_slug)
+        if base_branch == default_branch:
+            return base_branch
+        ls = await self._run_git(
+            workspace,
+            ["ls-remote", "--heads", "origin", base_branch],
+            check=False,
+            token=git_token,
+        )
+        if ls.stdout.strip():
+            return base_branch
+        await self._run_git(
+            workspace,
+            ["fetch", "origin", default_branch],
+            check=False,
+            token=git_token,
+        )
+        push = await self._run_git(
+            workspace,
+            ["push", "origin", f"origin/{default_branch}:refs/heads/{base_branch}"],
+            check=False,
+            token=git_token,
+        )
+        if push.returncode != 0:
+            self.log.warning(
+                "could not create missing PR base on remote; retargeting to default",
+                base_branch=base_branch,
+                default_branch=default_branch,
+                stderr=(push.stderr or "")[:200],
+            )
+            return default_branch
+        self.log.info(
+            "created missing PR base branch on remote off default",
+            base_branch=base_branch,
+            default_branch=default_branch,
+        )
+        return base_branch
+
     async def create_pr(
         self,
         branch_name: str,
@@ -2277,6 +2333,15 @@ class GitService(BaseService):
         )
         git_token = await self._get_project_token_or_raise(project.slug)
         owner, repo = self._parse_github_remote(workspace)
+
+        # `open_pr` targets an ancestor task's branch (e.g. the cell-PM
+        # integration branch) that may not exist on origin — a PM paused
+        # before pushing it, or the workspace was wiped. Create it on the
+        # remote off the default branch so GitHub doesn't 422 'base invalid'
+        # and the integration hierarchy is preserved.
+        parent = await self._ensure_base_on_remote(
+            workspace, parent, project.slug, git_token
+        )
 
         pr_title = f"[{str(task.id)[:8]}] {task.title}"
         pr_body = task.description or ""
