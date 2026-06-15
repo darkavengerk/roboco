@@ -69,6 +69,27 @@ class TestBuildForRole:
                 )
             )
 
+    @pytest.mark.parametrize("role", ["product_owner", "head_marketing"])
+    def test_board_roles_carry_read_messages(self, role: str) -> None:
+        """Board roles must keep read_messages so they can clear unread A2A and
+        i_am_idle (clean shutdown). A board agent spawned from a manifest that
+        omits it gets soft-blocked on i_am_idle forever — guard against the grant
+        silently dropping from _BOARD_DO.
+        """
+        m = build_for_role(
+            SpawnInputs(
+                agent_id=uuid4(),
+                role=role,
+                team="board",
+                workspace_path=Path("/tmp/x"),
+                agent_model="claude-opus-4-6",
+            )
+        )
+        assert "read_messages" in m.do_tools
+        # The full A2A/notification-receiver set must be present together.
+        for tool in ("notify_list", "notify_get", "notify_ack"):
+            assert tool in m.do_tools
+
 
 class TestWriteManifest:
     def test_writes_json(self, tmp_path: Path) -> None:
