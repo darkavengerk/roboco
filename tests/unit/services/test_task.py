@@ -544,6 +544,53 @@ async def test_unblock_no_branch_returns_to_pending() -> None:
 
 
 @pytest.mark.asyncio
+async def test_admin_set_status_out_of_blocked_restores_pre_block_owner() -> None:
+    # A code task a dev escalated to its cell PM (assigned_to=PM, BLOCKED,
+    # snapshot=dev). Taking it out of blocked via the admin override (operator
+    # PATCH, or the orchestrator's auto-recover/auto-resume) must hand ownership
+    # back to the dev — otherwise it re-enters pending/in_progress still owned by
+    # the PM and the dispatcher execute-spawns the PM on a dev code task (loop).
+    dev = uuid4()
+    pm = uuid4()
+    task = _build_task(
+        status=TaskStatus.BLOCKED,
+        assigned_to=pm,
+        claimed_by=pm,
+        branch_name="feature/frontend/abc--def--ghi",
+        pre_block_state="in_progress",
+        pre_block_assignee=dev,
+    )
+    svc = TaskService(MagicMock(flush=AsyncMock()))
+    _bind(svc, "get", AsyncMock(return_value=task))
+    out = await svc.admin_set_status(task.id, TaskStatus.IN_PROGRESS)
+    assert out is task
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.assigned_to == dev
+    assert task.claimed_by == dev
+    assert task.pre_block_assignee is None
+    assert task.pre_block_state is None
+
+
+@pytest.mark.asyncio
+async def test_admin_set_status_non_blocked_is_bare_status_set() -> None:
+    # The restore branch fires ONLY on blocked -> pending/in_progress with a
+    # snapshot. Every other override stays a plain status set; the owner is
+    # untouched (no spurious restore/divert).
+    owner = uuid4()
+    task = _build_task(
+        status=TaskStatus.AWAITING_PM_REVIEW,
+        assigned_to=owner,
+        claimed_by=owner,
+    )
+    svc = TaskService(MagicMock(flush=AsyncMock()))
+    _bind(svc, "get", AsyncMock(return_value=task))
+    out = await svc.admin_set_status(task.id, TaskStatus.COMPLETED)
+    assert out is task
+    assert task.status == TaskStatus.COMPLETED
+    assert task.assigned_to == owner
+
+
+@pytest.mark.asyncio
 async def test_unblock_with_branch_resumes_in_progress() -> None:
     # A task claimed (has a branch) before it blocked resumes in_progress.
     task = _build_task(

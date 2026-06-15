@@ -1014,6 +1014,15 @@ class TaskService(BaseService):
         task wedged in a state with no valid in-band move (e.g. a ``blocked``
         task whose work already merged out-of-band). The change is recorded in
         the audit log like any other transition — no status change may skip it.
+
+        Taking a task OUT of ``blocked`` here (operator PATCH, or the
+        orchestrator's auto-recover/auto-resume) restores the pre-block owner
+        exactly as ``unblock(restore=True)`` does. Without this, a code task
+        that a developer escalated to its cell PM re-enters ``pending``/
+        ``in_progress`` still owned by that PM, and the dispatcher execute-spawns
+        the PM on a dev task it cannot do (a respawn loop). The in-band escalate
+        and block-down transitions are untouched — this fires only on
+        re-activation, and only when a pre-block snapshot exists.
         """
         task = await self.get(task_id)
         if not task:
@@ -1023,6 +1032,12 @@ class TaskService(BaseService):
             if isinstance(task.status, TaskStatus)
             else str(task.status)
         )
+        if (
+            from_status == TaskStatus.BLOCKED.value
+            and new_status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS)
+            and task.pre_block_assignee is not None
+        ):
+            return await self._apply_pre_block_restore(task, new_status)
         task.status = new_status
         await self.session.flush()
         self._emit_status_transition_audit(
