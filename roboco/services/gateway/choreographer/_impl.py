@@ -811,6 +811,41 @@ class Choreographer:
             context_briefing=await self._briefing_for(agent_id, task_id),
         )
 
+    async def _parent_acs_covered_envelope(
+        self,
+        agent_id: UUID,
+        task_id: UUID,
+        *,
+        context_phrase: str,
+    ) -> Envelope | None:
+        """Reject roll-up if any parent acceptance criterion is unsatisfied.
+
+        A parent AC is satisfied only when a COMPLETED child declared it via
+        ``covers_parent_criteria`` (→ ``parent_ac_refs``). Safe-by-construction:
+        ``uncovered_parent_acceptance_criteria`` returns nothing unless coverage
+        is declared on the children, so this is inert for tasks decomposed before
+        coverage tracking and bites only once a PM maps children to parent
+        criteria. The backstop that stops a half-built parent (criteria silently
+        dropped at decompose-time) from rolling up "done" — the PR #175 hole.
+        """
+        uncovered = await self.task.uncovered_parent_acceptance_criteria(task_id)
+        # isinstance keeps the gate inert under partial test mocks (an AsyncMock
+        # TaskService returns a truthy stub, not a concrete list) and on any
+        # unexpected return — enforce only on a real, non-empty list.
+        if not isinstance(uncovered, list) or not uncovered:
+            return None
+        listing = "; ".join(uncovered)
+        return Envelope.tracing_gap(
+            missing=["parent acceptance criteria not satisfied"],
+            remediate=(
+                f"{len(uncovered)} parent acceptance criteria are not covered by a "
+                f"completed subtask before {context_phrase}: {listing}. Delegate "
+                "(or reassign) subtasks covering them and let those pass QA + "
+                "complete first."
+            ),
+            context_briefing=await self._briefing_for(agent_id, task_id),
+        )
+
     def _verb_runner(self) -> VerbRunner:
         """Construct a VerbRunner bound to this Choreographer's services.
 
@@ -4342,6 +4377,10 @@ class Choreographer:
             pm_agent_id, task_id, context_phrase="bubbling up"
         ):
             return env
+        if env := await self._parent_acs_covered_envelope(
+            pm_agent_id, task_id, context_phrase="bubbling up"
+        ):
+            return env
         if not t.branch_name:
             return Envelope.invalid_state(
                 message="task has no branch; cannot open cell-level PR",
@@ -4604,8 +4643,13 @@ class Choreographer:
             )
         if env := await self._check_complete_gates(pm_agent_id, task_id, notes):
             return env
-        if env := await self._subtasks_not_terminal_envelope(
-            pm_agent_id, task_id, context_phrase="completing parent"
+        if env := (
+            await self._subtasks_not_terminal_envelope(
+                pm_agent_id, task_id, context_phrase="completing parent"
+            )
+            or await self._parent_acs_covered_envelope(
+                pm_agent_id, task_id, context_phrase="completing parent"
+            )
         ):
             return env
         if t.pr_number is None:
@@ -4885,8 +4929,13 @@ class Choreographer:
             main_pm_agent_id, root_task_id, notes
         ):
             return env
-        if env := await self._subtasks_not_terminal_envelope(
-            main_pm_agent_id, root_task_id, context_phrase="escalating to CEO"
+        if env := (
+            await self._subtasks_not_terminal_envelope(
+                main_pm_agent_id, root_task_id, context_phrase="escalating to CEO"
+            )
+            or await self._parent_acs_covered_envelope(
+                main_pm_agent_id, root_task_id, context_phrase="escalating to CEO"
+            )
         ):
             return env
         return None
@@ -5261,9 +5310,15 @@ class Choreographer:
         # Verb-specific preflight: journal:decision presence (out of spec scope).
         # Delegates to _check_pm_decision_required which consumes
         # VERB_REQUIREMENTS["escalate_to_ceo"].
-        if env := await self._check_pm_decision_required(
+        # Verb-body preflight: journal:decision presence, then the parent-AC
+        # backstop (a root may not escalate to the CEO with parent ACs that no
+        # completed subtask covered — inert until coverage is declared).
+        env = await self._check_pm_decision_required(
             "escalate_to_ceo", agent_id, task_id, t
-        ):
+        ) or await self._parent_acs_covered_envelope(
+            agent_id, task_id, context_phrase="escalating to CEO"
+        )
+        if env:
             return await self._emit_rejection(
                 env.with_introspection(task=t, role=role_str),
                 agent_id=agent_id,

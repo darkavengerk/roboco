@@ -621,6 +621,57 @@ async def test_create_generates_ac_ids_and_carries_parent_ac_refs() -> None:
     assert list(task.parent_ac_refs) == ["parent-ac-1", "parent-ac-2"]
 
 
+def _svc_with_children(parent: object, child_rows: list[tuple]) -> TaskService:
+    """TaskService whose get() returns `parent` and whose execute() yields the
+    (status, parent_ac_refs) child rows the coverage primitive selects."""
+    rows = MagicMock()
+    rows.all.return_value = child_rows
+    svc = TaskService(MagicMock(execute=AsyncMock(return_value=rows)))
+    _bind(svc, "get", AsyncMock(return_value=parent))
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_uncovered_parent_acs_inert_without_declared_coverage() -> None:
+    # No child declares parent_ac_refs -> coverage tracking inactive -> the gate
+    # is inert (legacy/in-flight tasks are never blocked).
+    parent = _build_task(
+        acceptance_criteria=["a", "b"], acceptance_criteria_ids=["id-a", "id-b"]
+    )
+    svc = _svc_with_children(
+        parent, [(TaskStatus.COMPLETED, []), (TaskStatus.COMPLETED, [])]
+    )
+    assert await svc.uncovered_parent_acceptance_criteria(parent.id) == []
+
+
+@pytest.mark.asyncio
+async def test_uncovered_parent_acs_flags_unsatisfied_and_ignores_cancelled() -> None:
+    parent = _build_task(
+        acceptance_criteria=["crit a", "crit b", "crit c"],
+        acceptance_criteria_ids=["id-a", "id-b", "id-c"],
+    )
+    svc = _svc_with_children(
+        parent,
+        [
+            (TaskStatus.COMPLETED, ["id-a"]),  # covers crit a
+            (TaskStatus.CANCELLED, ["id-b"]),  # cancelled -> does NOT cover crit b
+        ],
+    )
+    assert await svc.uncovered_parent_acceptance_criteria(parent.id) == [
+        "crit b",
+        "crit c",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_uncovered_parent_acs_empty_when_all_covered() -> None:
+    parent = _build_task(
+        acceptance_criteria=["a", "b"], acceptance_criteria_ids=["id-a", "id-b"]
+    )
+    svc = _svc_with_children(parent, [(TaskStatus.COMPLETED, ["id-a", "id-b"])])
+    assert await svc.uncovered_parent_acceptance_criteria(parent.id) == []
+
+
 @pytest.mark.asyncio
 async def test_unblock_with_branch_resumes_in_progress() -> None:
     # A task claimed (has a branch) before it blocked resumes in_progress.

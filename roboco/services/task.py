@@ -5671,6 +5671,41 @@ class TaskService(BaseService):
         statuses = result.scalars().all()
         return all(s in terminal for s in statuses)
 
+    async def uncovered_parent_acceptance_criteria(self, task_id: UUID) -> list[str]:
+        """Parent ACs not yet satisfied by a COMPLETED child — for the roll-up gate.
+
+        Safe-by-construction: returns ``[]`` (no enforcement) unless at least one
+        child declares ``parent_ac_refs``, so the gate is inert for tasks
+        decomposed before coverage tracking and activates automatically once a PM
+        declares which child covers which parent criterion. A criterion counts as
+        covered only when a child whose ``parent_ac_refs`` includes it has
+        COMPLETED (cancelled children do not count — their work did not pass QA).
+        Returns the uncovered criterion *texts* for a human-readable rejection.
+        """
+        parent = await self.get(task_id)
+        if not parent or not parent.acceptance_criteria:
+            return []
+        result = await self.session.execute(
+            select(TaskTable.status, TaskTable.parent_ac_refs).where(
+                TaskTable.parent_task_id == task_id
+            )
+        )
+        rows = list(result.all())
+        if not any((refs or []) for _status, refs in rows):
+            # Decomposition predates coverage tracking — do not enforce.
+            return []
+        covered: set[str] = set()
+        for status, refs in rows:
+            if status == TaskStatus.COMPLETED:
+                covered.update(refs or [])
+        ids = parent.acceptance_criteria_ids or []
+        texts = parent.acceptance_criteria or []
+        return [
+            texts[idx] if idx < len(texts) else ac_id
+            for idx, ac_id in enumerate(ids)
+            if ac_id not in covered
+        ]
+
     async def set_plan(
         self, task_id: UUID, plan: str | dict[str, Any]
     ) -> TaskTable | None:
