@@ -241,10 +241,31 @@ the on-demand Intake and Secretary only run while you're interacting with them.
 Steady-state memory is dominated by the standing services (Postgres, Redis,
 and especially Ollama with its models loaded), not by the agents.
 
-Storage is the larger footprint: the built (or pulled) image set. The agent
-images all share a common base layer, so on disk they cost far less than their
-nominal sizes added together. `docker system prune` reclaims old image versions
-and stopped agent containers.
+Measured at idle on the reference NAS (full stack up, no task running), the
+standing services use roughly:
+
+| Service | RAM (idle) |
+|---------|------------|
+| Ollama (models loaded) | ~2.2 GB |
+| Orchestrator | ~150 MB |
+| Postgres | ~60 MB |
+| Panel | ~35 MB |
+| Redis | ~15 MB |
+| nginx | ~10 MB |
+
+So the whole standing stack idles around ~2.5 GB, almost all of it Ollama;
+the application itself is a few hundred MB. (These are idle figures — peak
+memory while agents are actively working will be higher, and is best read
+live with `docker stats` while a task is in flight.)
+
+Storage is the larger footprint: the image set. The agent images all build
+`FROM` a shared base layer, so on disk they cost far less than their nominal
+sizes added together. For reference, the panel image is ~230 MB, the
+orchestrator ~0.9 GB, the agent base ~1.1 GB, and each agent image ~1.1 GB
+(the frontend dev/QA images are larger, ~1.9 GB, for their browser/Node
+toolchain) — but the shared base means the real on-disk total is well below
+their sum. `docker system prune` reclaims old image versions, stopped agent
+containers, and build cache (typically a few GB).
 
 Monitor with:
 ```bash

@@ -107,25 +107,64 @@ roboco/
 │   └── rag/                     # Agent knowledge base (indexed into RAG)
 ├── alembic/                     # Database migrations
 ├── CLAUDE.md                    # Claude Code guidance
-└── docker-compose.yml           # Local development stack
+├── docker-compose.yml           # Full stack, built from source
+└── docker-compose.registry.yml  # Full stack, pulled from the image registry
 ```
 
-## Quick Start
+## Running RoboCo
+
+You need **Docker** + **Docker Compose** and a Claude Code auth directory on
+the host (`~/.claude`, mounted into the orchestrator so agents can reach the
+model). Copy `.env.example` to `.env` and set at least `ROBOCO_ENCRYPTION_KEY`
+and `ROBOCO_AGENT_AUTH_SECRET` (that file shows how to generate each). However
+you start it, the whole company is reachable at one origin:
+**http://localhost:3000**.
+
+### Option 1 — Run the pre-built images (quickest)
+
+Every release publishes all RoboCo images to both the GitHub Container
+Registry and Docker Hub, so you can run the full stack without building
+anything. Use the registry compose:
 
 ```bash
-# Install dependencies
+git clone https://github.com/rennf93/roboco.git && cd roboco
+cp .env.example .env                                   # then edit in your secrets
+docker compose -f docker-compose.registry.yml pull
+docker compose -f docker-compose.registry.yml up -d
+```
+
+Choose the registry and version with two env vars (defaults shown):
+
+```bash
+ROBOCO_REGISTRY=ghcr.io/rennf93   # or docker.io/renzof93
+ROBOCO_VERSION=latest             # or a pinned release, e.g. 0.5.0
+```
+
+The orchestrator spawns the matching pre-built agent images on demand — no
+build toolchain or source compile on your host.
+
+### Option 2 — Build from source
+
+The same full stack, built locally from the Dockerfiles instead of pulled:
+
+```bash
+git clone https://github.com/rennf93/roboco.git && cd roboco
+cp .env.example .env              # then edit in your secrets
+docker compose up -d              # builds images on first run, then starts everything
+```
+
+### Option 3 — Local development (no full stack)
+
+For hacking on the code itself, run only the backing services in Docker and
+the API on your host:
+
+```bash
 uv sync
+docker compose up -d postgres redis ollama   # backing services only
+uv run alembic upgrade head                   # migrate the database
+uv run python -m roboco.cli                   # API + orchestrator
 
-# Start PostgreSQL and Redis (Docker)
-docker compose up -d
-
-# Run database migrations
-uv run alembic upgrade head
-
-# Start the API server
-uv run python -m roboco.cli
-
-# Or just the API without orchestrator
+# Or just the API without the orchestrator:
 uv run uvicorn roboco.api.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
