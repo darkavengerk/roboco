@@ -135,6 +135,14 @@ class Task(TimestampMixin):
     acceptance_criteria: list[str] = Field(
         ..., min_length=1, description="How do we know it's done?"
     )
+    acceptance_criteria_ids: list[str] = Field(
+        default_factory=list,
+        description="Stable id per acceptance_criteria element (1:1, same order).",
+    )
+    parent_ac_refs: list[str] = Field(
+        default_factory=list,
+        description="On a decomposition child: parent AC ids this child covers.",
+    )
 
     # Status
     status: TaskStatus = Field(default=TaskStatus.PENDING)
@@ -418,6 +426,12 @@ class TaskCreateRequest:
     # Ordering and dependencies
     sequence: int = 0  # Order within siblings (lower = first)
     dependency_ids: list[UUID] = field(default_factory=list)
+
+    # AC identity + linkage (migration 036). acceptance_criteria_ids is generated
+    # in TaskService.create when empty; parent_ac_refs is the parent AC ids a
+    # decomposition child is responsible for (the coverage/roll-up linkage).
+    acceptance_criteria_ids: list[str] = field(default_factory=list)
+    parent_ac_refs: list[str] = field(default_factory=list)
 
     # Prompter origin tracking
     source: str = "manual"

@@ -18,9 +18,13 @@ from roboco.models.base import (
     AgentRole,
     AgentStatus,
     BlockerResolverType,
+    Complexity,
+    TaskNature,
     TaskStatus,
+    TaskType,
     Team,
 )
+from roboco.models.task import TaskCreateRequest
 from roboco.services.task import GatewayAgentView, TaskService
 
 
@@ -588,6 +592,33 @@ async def test_admin_set_status_non_blocked_is_bare_status_set() -> None:
     assert out is task
     assert task.status == TaskStatus.COMPLETED
     assert task.assigned_to == owner
+
+
+@pytest.mark.asyncio
+async def test_create_generates_ac_ids_and_carries_parent_ac_refs() -> None:
+    # Every task gets one stable id per acceptance criterion (1:1), and a
+    # decomposition child carries the parent AC ids it covers — the linkage the
+    # coverage + roll-up gates rely on.
+    svc = TaskService(
+        MagicMock(add=MagicMock(), flush=AsyncMock(), execute=AsyncMock())
+    )
+    req = TaskCreateRequest(
+        title="t",
+        description="d",
+        acceptance_criteria=["crit a", "crit b", "crit c"],
+        team=Team.BACKEND,
+        created_by=uuid4(),
+        task_type=TaskType.CODE,
+        nature=TaskNature.TECHNICAL,
+        estimated_complexity=Complexity.MEDIUM,
+        project_id=uuid4(),
+        parent_ac_refs=["parent-ac-1", "parent-ac-2"],
+    )
+    task = await svc.create(req)
+    n = len(req.acceptance_criteria)
+    assert len(task.acceptance_criteria_ids) == n
+    assert len(set(task.acceptance_criteria_ids)) == n
+    assert list(task.parent_ac_refs) == ["parent-ac-1", "parent-ac-2"]
 
 
 @pytest.mark.asyncio

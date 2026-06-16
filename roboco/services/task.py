@@ -9,7 +9,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -553,10 +553,17 @@ class TaskService(BaseService):
         if req.parent_task_id:
             await self._validate_parent_depth(req.parent_task_id)
 
+        # Stable per-criterion ids (1:1 with acceptance_criteria) so children can
+        # reference specific parent criteria; generated here when not supplied.
+        ac_ids = req.acceptance_criteria_ids or [
+            uuid4().hex for _ in (req.acceptance_criteria or [])
+        ]
         task = TaskTable(
             title=req.title,
             description=req.description,
             acceptance_criteria=req.acceptance_criteria,
+            acceptance_criteria_ids=ac_ids,
+            parent_ac_refs=req.parent_ac_refs,
             team=req.team,
             created_by=req.created_by,
             assigned_to=req.assigned_to,
@@ -6314,6 +6321,7 @@ class TaskService(BaseService):
             title=req.title,
             description=req.description,
             acceptance_criteria=req.acceptance_criteria,
+            parent_ac_refs=req.parent_ac_refs,
             team=req.team,
             created_by=req.created_by,
             project_id=req.project_id,

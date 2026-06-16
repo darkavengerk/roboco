@@ -167,6 +167,16 @@ class TaskTable(Base):
     acceptance_criteria: Mapped[list[str]] = mapped_column(
         ARRAY(String), nullable=False
     )
+    # Stable id per acceptance_criteria element (1:1, same order). Lets a child
+    # task's parent_ac_refs point at specific parent criteria (migration 036).
+    acceptance_criteria_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
+    # On a decomposition child: the parent AC ids this child is responsible for
+    # (empty on non-children). Powers the coverage + roll-up AC gates.
+    parent_ac_refs: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list
+    )
 
     # Status
     status: Mapped[TaskStatus] = mapped_column(

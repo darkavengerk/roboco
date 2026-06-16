@@ -313,6 +313,9 @@ class DelegateInputs:
     acceptance_criteria: list[str] | None = None
     estimated_complexity: str = "medium"
     project_id: UUID | None = None
+    # Parent AC ids this subtask is responsible for — the decomposition coverage
+    # link. Empty/None means the child covers no specific parent criteria yet.
+    covers_parent_criteria: list[str] | None = None
 
 
 class Choreographer:
@@ -4093,6 +4096,7 @@ class Choreographer:
             title=inputs.title,
             description=inputs.description,
             acceptance_criteria=inputs.acceptance_criteria,
+            parent_ac_refs=inputs.covers_parent_criteria or [],
             team=team_enum,
             created_by=pm_agent_id,
             project_id=resolved_project_id,
