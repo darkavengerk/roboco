@@ -130,9 +130,23 @@ AGENT_IMAGES: dict[str, str] = {
 }
 
 
+def _qualify_agent_image(bare: str) -> str:
+    """Apply the configured registry namespace + tag to a bare agent image.
+
+    Default (no ``agent_image_registry``, no ``agent_image_tag``) returns the
+    bare name unchanged — the local build flow. With a registry set the
+    orchestrator spawns (and ensures) ``{registry}/roboco-agent-*[:tag]``, the
+    pre-built images the release workflow publishes, instead of building.
+    """
+    registry = settings.agent_image_registry.rstrip("/")
+    name = f"{registry}/{bare}" if registry else bare
+    tag = settings.agent_image_tag
+    return f"{name}:{tag}" if tag else name
+
+
 def get_agent_image(agent_id: str) -> str:
-    """Get the Docker image for an agent."""
-    return AGENT_IMAGES.get(agent_id, AGENT_BASE_IMAGE)
+    """Get the Docker image for an agent (registry-qualified when configured)."""
+    return _qualify_agent_image(AGENT_IMAGES.get(agent_id, AGENT_BASE_IMAGE))
 
 
 # When running in a container, we need host paths for volume mounts.
@@ -731,9 +745,12 @@ class AgentOrchestrator:
         logger.info("Orchestrator stopped")
 
     async def _ensure_agent_image(self, agent_id: str | None = None) -> None:
-        """Ensure the agent Docker images are built.
+        """Ensure the agent Docker images are present.
 
-        Builds base image first, then specialized image if agent_id provided.
+        Local mode (no ``agent_image_registry``) builds the base image first,
+        then the role-specialized image, from ``docker/agent-*.Dockerfile``.
+        Registry mode pulls the pre-built images instead. Idempotent — skips
+        anything already present locally.
         """
         # Determine build context
         if PROJECT_HOST_PATH:
@@ -744,17 +761,17 @@ class AgentOrchestrator:
             docker_dir = str(self.project_root / "docker")
 
         # Always ensure base image exists
-        await self._build_image_if_missing(
+        await self._ensure_image_present(
             AGENT_BASE_IMAGE,
             f"{docker_dir}/agent-base.Dockerfile",
             build_context,
         )
 
-        # Build specialized image if agent specified
+        # Ensure the role-specialized image if this agent uses one
         if agent_id:
-            image = get_agent_image(agent_id)
-            if image != AGENT_BASE_IMAGE:
-                # Map image name to dockerfile
+            bare = AGENT_IMAGES.get(agent_id, AGENT_BASE_IMAGE)
+            if bare != AGENT_BASE_IMAGE:
+                # Map the bare image name to its dockerfile
                 dockerfile_map = {
                     "roboco-agent-pm": "agent-pm.Dockerfile",
                     "roboco-agent-dev-be": "agent-dev-be.Dockerfile",
@@ -764,49 +781,71 @@ class AgentOrchestrator:
                     "roboco-agent-doc": "agent-doc.Dockerfile",
                     "roboco-agent-ux": "agent-ux.Dockerfile",
                     "roboco-agent-prompter": "agent-prompter.Dockerfile",
+                    "roboco-agent-secretary": "agent-secretary.Dockerfile",
                 }
-                dockerfile = dockerfile_map.get(image)
+                dockerfile = dockerfile_map.get(bare)
                 if dockerfile:
-                    await self._build_image_if_missing(
-                        image,
+                    await self._ensure_image_present(
+                        bare,
                         f"{docker_dir}/{dockerfile}",
                         build_context,
                     )
 
-    async def _build_image_if_missing(
-        self, image_name: str, dockerfile_path: str, build_context: str
+    async def _ensure_image_present(
+        self, bare_image: str, dockerfile_path: str, build_context: str
     ) -> None:
-        """Build a Docker image if it doesn't exist."""
+        """Ensure one agent image is present locally.
+
+        Pulls it (registry mode) or builds it from its Dockerfile (local mode)
+        when missing; no-op if already present.
+        """
+        image = _qualify_agent_image(bare_image)
         # Check if image exists
         proc = await asyncio.create_subprocess_exec(
             "docker",
             "image",
             "inspect",
-            image_name,
+            image,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
         await proc.wait()
+        if proc.returncode == 0:
+            return
 
-        if proc.returncode != 0:
-            logger.info("Building Docker image...", image=image_name)
+        if settings.agent_image_registry:
+            # Registry mode: pull the pre-built image; never build from source
+            # (a deployment running pre-built images has no build context).
+            logger.info("Pulling agent image...", image=image)
             proc = await asyncio.create_subprocess_exec(
                 "docker",
-                "build",
-                "-t",
-                image_name,
-                "-f",
-                dockerfile_path,
-                build_context,
+                "pull",
+                image,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await proc.communicate()
             if proc.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to build image {image_name}: {stderr.decode()}"
-                )
-            logger.info("Docker image built successfully", image=image_name)
+                raise RuntimeError(f"Failed to pull image {image}: {stderr.decode()}")
+            logger.info("Agent image pulled", image=image)
+            return
+
+        logger.info("Building Docker image...", image=image)
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            "build",
+            "-t",
+            image,
+            "-f",
+            dockerfile_path,
+            build_context,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Failed to build image {image}: {stderr.decode()}")
+        logger.info("Docker image built successfully", image=image)
 
     # =========================================================================
     # PER-AGENT SETTINGS GENERATION

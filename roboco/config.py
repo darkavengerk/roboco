@@ -394,6 +394,32 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Agent container images (spawn source)
+    # ==========================================================================
+    # By default the orchestrator builds each specialized agent image locally
+    # from docker/agent-*.Dockerfile the first time it spawns that role (the
+    # build/test flow). Set a registry to run the PRE-BUILT images the release
+    # workflow publishes instead — the orchestrator then pulls
+    # `{registry}/roboco-agent-*[:tag]` rather than building, so a deployment
+    # never needs the source tree or a build toolchain. Empty = local build
+    # (unchanged behavior).
+    agent_image_registry: str = Field(
+        default="",
+        description=(
+            "Registry namespace for pre-built agent images, e.g. "
+            "'ghcr.io/rennf93' or 'docker.io/renzof93'. Empty builds locally."
+        ),
+    )
+    agent_image_tag: str = Field(
+        default="",
+        description=(
+            "Tag for pre-built agent images (e.g. 'latest' or '0.5.0'). Empty "
+            "leaves the tag implicit (':latest'); only meaningful with "
+            "agent_image_registry set."
+        ),
+    )
+
+    # ==========================================================================
     # Transcript retention (agent Claude Code transcripts under ~/.claude)
     # ==========================================================================
     transcript_retention_days: int = Field(
