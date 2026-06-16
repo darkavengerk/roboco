@@ -32,6 +32,20 @@ CEO (Renzo - Human)
 | Documenters | 3 (1 per cell) |
 | **Total** | **20** (19 AI + 1 human) |
 
+## On-Demand Roles (Human-Facing)
+
+Two roles sit outside the standing delivery org above. They are **human-only**,
+**spawned on demand** as live chat sessions, and are not part of the 20-agent
+count:
+
+| Role | Purpose |
+|------|---------|
+| Prompter (Intake) | Interviews the CEO and drafts a board-ready task |
+| Secretary | The CEO's chief-of-staff; reads company state and runs gated CEO directives |
+
+Neither has lifecycle verbs or outward agent comms. See
+`docs/rag/roles/prompter.md` and `docs/rag/roles/secretary.md`.
+
 ## Cells
 
 | Cell | PM | Developers | QA | Documenter |
