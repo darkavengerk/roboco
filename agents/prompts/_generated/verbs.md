@@ -7,6 +7,9 @@ Run `uv run python scripts/regenerate_verb_tables.py` after changing
 any role config or schema. Role prompts reference this file's sections
 as the source of truth for verb signatures.
 
+Driver-based roles (prompter, secretary) are intentionally omitted — their
+real tools live in their agent_sdk drivers, not role_config.
+
 ## developer
 
 ### Flow verbs
@@ -245,34 +248,4 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `channels` | `channels()` |
-
-## prompter
-
-### Flow verbs
-
-| Verb | Body schema |
-|------|-------------|
-| `i_am_idle` | `i_am_idle()` |
-
-### Content (do) tools
-
-| Tool | Body schema |
-|------|-------------|
-| `note` | `note(text: str, scope: str = 'note', task_id: UUID | None = None, title: str | None = None, context: str = '', options: list[str | str] | None = None, chosen: str = '', rationale: str = '', consequences: list[str] | None = None, what_done: str = '', what_learned: str = '', what_struggled: str = '', next_steps: list[str] | None = None)` |
-| `evidence` | `evidence(task_id: UUID)` |
-
-## secretary
-
-### Flow verbs
-
-| Verb | Body schema |
-|------|-------------|
-| `i_am_idle` | `i_am_idle()` |
-
-### Content (do) tools
-
-| Tool | Body schema |
-|------|-------------|
-| `note` | `note(text: str, scope: str = 'note', task_id: UUID | None = None, title: str | None = None, context: str = '', options: list[str | str] | None = None, chosen: str = '', rationale: str = '', consequences: list[str] | None = None, what_done: str = '', what_learned: str = '', what_struggled: str = '', next_steps: list[str] | None = None)` |
-| `evidence` | `evidence(task_id: UUID)` |
 
