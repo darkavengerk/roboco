@@ -345,7 +345,7 @@ the verbs its role is allowed to call. The orchestrator builds the
 manifest from `roboco/services/gateway/role_config.py` and mounts it
 read-only into the agent container.
 
-### Verb surface (canonical source: `lifecycle.spec.intents_for_role`; every role also gets `i_am_idle`)
+### Verb surface (canonical source: `lifecycle.intents_for_role`; every role also gets `i_am_idle`)
 
 | Role          | Flow verbs (beyond `i_am_idle`)                                                                  |
 |---------------|--------------------------------------------------------------------------------------------------|
@@ -354,14 +354,18 @@ read-only into the agent container.
 | documenter    | `give_me_work`, `claim_doc_task`, `i_documented`, `i_am_blocked`, `resume`, `unclaim`             |
 | cell_pm       | `give_me_work`, `i_will_plan`, `delegate`, `complete`, `submit_up`, `triage`, `unblock`, `escalate_up`, `reassign`, `resume`, `unclaim` |
 | main_pm       | `give_me_work`, `i_will_plan`, `delegate`, `complete`, `triage`, `triage_all`, `unblock`, `escalate_up`, `escalate_to_ceo`, `resume`, `unclaim` |
+| pr_reviewer   | `give_me_work`, `claim_pr_review`, `post_pr_review` (read-only reviewer; inbound external/fork PRs first) |
 | product_owner | `triage`, `escalate_to_ceo`                                                                      |
 | head_marketing| `triage`, `escalate_to_ceo`                                                                      |
 | auditor       | `triage` (read-only — no `say`/`dm`)                                                             |
 | prompter      | (none beyond `i_am_idle` — not a delivery-lifecycle role; intake interviewer, human-only)        |
+| secretary     | (none beyond `i_am_idle` — human-only chief-of-staff; reads company state + runs gated CEO directives) |
 
 Content tools (do_server) — most roles: `commit`, `note`, `say`, `dm`, `evidence`.
-Auditor is restricted to `note` (scope=reflect) + `evidence`. The `prompter`
-(intake) is restricted to `note` + `evidence` — human-only, no `say`/`dm`/`notify`.
+Auditor is restricted to `note` (scope=reflect) + `evidence`. The `pr_reviewer`
+posts its change-request on the PR itself (no agent comms). The `prompter`
+(intake) and `secretary` are restricted to `note` + `evidence` — human-only,
+no `say`/`dm`/`notify`.
 
 ### MCP servers running per agent container
 
