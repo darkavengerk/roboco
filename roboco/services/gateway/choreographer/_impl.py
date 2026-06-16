@@ -705,7 +705,12 @@ class Choreographer:
         )
 
     async def _briefing_for(
-        self, agent_id: UUID, task_id: UUID | None, *, task: Any | None = None
+        self,
+        agent_id: UUID,
+        task_id: UUID | None,
+        *,
+        task: Any | None = None,
+        include_ac_coverage: bool = False,
     ) -> dict[str, Any]:
         """Assemble context_briefing for agent_id, optionally scoped to task_id.
 
@@ -713,6 +718,12 @@ class Choreographer:
         path holds it). The prior-work handoff is built only when it is passed —
         no extra fetch — so task-scoped error paths that carry only an id simply
         omit the digest rather than pay a redundant read for it.
+
+        ``include_ac_coverage`` is set only on PM decomposition touchpoints
+        (give_me_work / i_will_plan / delegate / submit_up) so the PM sees, per
+        parent criterion, what is still unclaimed and can pass
+        ``covers_parent_criteria`` on delegate. Off everywhere else so a leaf's
+        own criteria never surface as bogus "unclaimed" noise to a developer.
         """
         repo = self._deps.evidence_repo
         task_handoff: dict[str, Any] | None = None
@@ -734,7 +745,22 @@ class Choreographer:
             task_handoff=task_handoff,
             company_goals=await repo.company_goals(),
         )
-        return build_context_briefing(inputs)
+        briefing = build_context_briefing(inputs)
+        if include_ac_coverage and task_id is not None:
+            coverage = await self.task.parent_ac_coverage(task_id)
+            if coverage:
+                # Compact decomposition view: surface each parent criterion's id
+                # so the PM can map subtasks to it via covers_parent_criteria,
+                # and call out the ones still unclaimed. Mirrors how sizing_hint
+                # is merged ad-hoc — context_briefing is free-form dict[str, Any].
+                briefing = {
+                    **briefing,
+                    "parent_ac_coverage": coverage,
+                    "unclaimed_parent_acs": [
+                        c["id"] for c in coverage if not c["claimed"]
+                    ],
+                }
+        return briefing
 
     async def _run_claim_guards(
         self,
@@ -2863,6 +2889,10 @@ class Choreographer:
             return await self._emit_rejection(
                 guard, agent_id=agent_id, task_id=None, verb="i_am_idle"
             )
+        if guard := await self._pm_uncovered_decomposition_guard(agent_id, briefing):
+            return await self._emit_rejection(
+                guard, agent_id=agent_id, task_id=None, verb="i_am_idle"
+            )
         paused_ids = await self._auto_pause_in_progress_tasks(agent_id)
         await self.task.mark_agent_idle(agent_id)
         if paused_ids:
@@ -2955,6 +2985,49 @@ class Choreographer:
             ),
             context_briefing=briefing,
         )
+
+    async def _pm_uncovered_decomposition_guard(
+        self, agent_id: UUID, briefing: dict[str, Any]
+    ) -> Envelope | None:
+        """Refuse i_am_idle when a PM left a parent criterion unclaimed (Spec 2).
+
+        The decomposition floor: a PM that has mapped *some* children to parent
+        acceptance criteria (``covers_parent_criteria``) cannot idle while
+        another parent criterion still has no subtask responsible for it — the
+        "two leaves, half the ACs silently dropped" pattern from PR #175.
+        Distinct from the roll-up gate (Spec 4), which fires at submit_up /
+        complete / escalate and demands a *completed* child; this fires earlier,
+        at PM exit, and asks only that every criterion be *claimed*.
+        Safe-by-construction: ``unclaimed_parent_acceptance_criteria`` returns
+        ``[]`` until the PM declares coverage on at least one child, so this is
+        inert for legacy / not-yet-adopted decompositions and never blocks a PM
+        who never touched coverage at all.
+        """
+        agent = await self.task.agent_for(agent_id)
+        if not agent or agent.role not in ("cell_pm", "main_pm"):
+            return None
+        assigned = await self.task.list_assigned_for_agent(agent_id)
+        for parent in assigned:
+            if str(parent.status) in self._TERMINAL_STATUSES:
+                continue
+            unclaimed = await self.task.unclaimed_parent_acceptance_criteria(parent.id)
+            # isinstance keeps the gate inert under partial test mocks (an
+            # AsyncMock TaskService returns a truthy stub, not a concrete list).
+            if not isinstance(unclaimed, list) or not unclaimed:
+                continue
+            listing = "; ".join(unclaimed)
+            return Envelope.invalid_state(
+                message=(
+                    f"task {parent.id} has {len(unclaimed)} acceptance criteria with"
+                    " no subtask responsible for them; cannot idle mid-decomposition."
+                ),
+                remediate=(
+                    "delegate (or reassign) subtasks whose covers_parent_criteria"
+                    f" include these criteria, then retry i_am_idle: {listing}"
+                ),
+                context_briefing=briefing,
+            )
+        return None
 
     async def _auto_pause_in_progress_tasks(self, agent_id: UUID) -> list[str]:
         """Pause every in_progress task assigned to this agent.
@@ -3086,7 +3159,9 @@ class Choreographer:
             )
         agent = await self.task.agent_for(pm_agent_id)
         role_str = str(agent.role) if agent is not None else "cell_pm"
-        briefing = await self._briefing_for(pm_agent_id, task_id, task=t)
+        briefing = await self._briefing_for(
+            pm_agent_id, task_id, task=t, include_ac_coverage=True
+        )
         try:
             role = spec_module.Role(role_str)
         except ValueError:
@@ -3906,6 +3981,16 @@ class Choreographer:
         hint = self._sizing_hint(inputs)
         if hint is not None:
             briefing = {**briefing, "sizing_hint": hint}
+        # Recompute coverage AFTER creation so the PM sees this child counted and
+        # exactly which parent criteria are still unclaimed before the next
+        # delegate / idle. The pre-create briefing built in delegate() is stale.
+        coverage = await self.task.parent_ac_coverage(parent_task_id)
+        if coverage:
+            briefing = {
+                **briefing,
+                "parent_ac_coverage": coverage,
+                "unclaimed_parent_acs": [c["id"] for c in coverage if not c["claimed"]],
+            }
         return Envelope.ok(
             status="created",
             task_id=str(new_task.id),
@@ -4211,7 +4296,9 @@ class Choreographer:
         returns, the task is handed off to the Main PM (reassign + a2a).
         """
         t = await self.task.get(task_id)
-        briefing = await self._briefing_for(pm_agent_id, task_id, task=t)
+        briefing = await self._briefing_for(
+            pm_agent_id, task_id, task=t, include_ac_coverage=True
+        )
         if t is None:
             return await self._emit_rejection(
                 Envelope.not_found(message=f"task {task_id} not found"),

@@ -36,6 +36,7 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |
 
 ## qa
@@ -49,7 +50,7 @@ as the source of truth for verb signatures.
 | `give_me_work` | `give_me_work()` |
 | `i_am_blocked` | `i_am_blocked(task_id: UUID, reason: str, blocker_type: str | None = None, what_needed: str | None = None)` |
 | `i_am_idle` | `i_am_idle()` |
-| `pass_review` | `pass_review(task_id: UUID, notes: str)` |
+| `pass_review` | `pass_review(task_id: UUID, notes: str, ac_verdicts: list[str] | None = None)` |
 | `resume` | `resume(task_id: UUID)` |
 | `unclaim` | `unclaim(task_id: UUID)` |
 
@@ -64,6 +65,7 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |
 
 ## documenter
@@ -94,6 +96,7 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |
 
 ## cell_pm
@@ -103,7 +106,7 @@ as the source of truth for verb signatures.
 | Verb | Body schema |
 |------|-------------|
 | `complete` | `complete(task_id: UUID, notes: str)` |
-| `delegate` | `delegate(parent_task_id: UUID, title: str, description: str, assigned_to: str, team: str, task_type: str, nature: str, estimated_complexity: str, acceptance_criteria: list[str], project_id: UUID | None = None)` |
+| `delegate` | `delegate(parent_task_id: UUID, title: str, description: str, assigned_to: str, team: str, task_type: str, nature: str, estimated_complexity: str, acceptance_criteria: list[str], project_id: UUID | None = None, covers_parent_criteria: list[str] | None = None)` |
 | `escalate_up` | `escalate_up(task_id: UUID, reason: str)` |
 | `give_me_work` | `give_me_work()` |
 | `i_am_idle` | `i_am_idle()` |
@@ -130,6 +133,7 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |
 
 ## main_pm
@@ -139,7 +143,7 @@ as the source of truth for verb signatures.
 | Verb | Body schema |
 |------|-------------|
 | `complete` | `complete(task_id: UUID, notes: str)` |
-| `delegate` | `delegate(parent_task_id: UUID, title: str, description: str, assigned_to: str, team: str, task_type: str, nature: str, estimated_complexity: str, acceptance_criteria: list[str], project_id: UUID | None = None)` |
+| `delegate` | `delegate(parent_task_id: UUID, title: str, description: str, assigned_to: str, team: str, task_type: str, nature: str, estimated_complexity: str, acceptance_criteria: list[str], project_id: UUID | None = None, covers_parent_criteria: list[str] | None = None)` |
 | `escalate_to_ceo` | `escalate_to_ceo(task_id: UUID, reason: str)` |
 | `escalate_up` | `escalate_up(task_id: UUID, reason: str)` |
 | `give_me_work` | `give_me_work()` |
@@ -166,6 +170,7 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |
 
 ## product_owner
@@ -183,6 +188,7 @@ as the source of truth for verb signatures.
 | Tool | Body schema |
 |------|-------------|
 | `note` | `note(text: str, scope: str = 'note', task_id: UUID | None = None, title: str | None = None, context: str = '', options: list[str | str] | None = None, chosen: str = '', rationale: str = '', consequences: list[str] | None = None, what_done: str = '', what_learned: str = '', what_struggled: str = '', next_steps: list[str] | None = None)` |
+| `pitch` | `pitch(title: str, slug: str, problem: str, proposed_solution: str, target_cells: list[str])` |
 | `say` | `say(channel: str, text: str, task_id: UUID | None = None)` |
 | `dm` | `dm(recipient: str, text: str, task_id: UUID | None = None, skill: str | None = None)` |
 | `notify` | `notify(target: str, text: str, priority: str = 'normal', task_id: UUID | None = None)` |
@@ -191,6 +197,7 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |
 
 ## head_marketing
@@ -208,6 +215,7 @@ as the source of truth for verb signatures.
 | Tool | Body schema |
 |------|-------------|
 | `note` | `note(text: str, scope: str = 'note', task_id: UUID | None = None, title: str | None = None, context: str = '', options: list[str | str] | None = None, chosen: str = '', rationale: str = '', consequences: list[str] | None = None, what_done: str = '', what_learned: str = '', what_struggled: str = '', next_steps: list[str] | None = None)` |
+| `pitch` | `pitch(title: str, slug: str, problem: str, proposed_solution: str, target_cells: list[str])` |
 | `say` | `say(channel: str, text: str, task_id: UUID | None = None)` |
 | `dm` | `dm(recipient: str, text: str, task_id: UUID | None = None, skill: str | None = None)` |
 | `notify` | `notify(target: str, text: str, priority: str = 'normal', task_id: UUID | None = None)` |
@@ -216,6 +224,7 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |
 
 ## auditor
@@ -236,4 +245,34 @@ as the source of truth for verb signatures.
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `channels` | `channels()` |
+
+## prompter
+
+### Flow verbs
+
+| Verb | Body schema |
+|------|-------------|
+| `i_am_idle` | `i_am_idle()` |
+
+### Content (do) tools
+
+| Tool | Body schema |
+|------|-------------|
+| `note` | `note(text: str, scope: str = 'note', task_id: UUID | None = None, title: str | None = None, context: str = '', options: list[str | str] | None = None, chosen: str = '', rationale: str = '', consequences: list[str] | None = None, what_done: str = '', what_learned: str = '', what_struggled: str = '', next_steps: list[str] | None = None)` |
+| `evidence` | `evidence(task_id: UUID)` |
+
+## secretary
+
+### Flow verbs
+
+| Verb | Body schema |
+|------|-------------|
+| `i_am_idle` | `i_am_idle()` |
+
+### Content (do) tools
+
+| Tool | Body schema |
+|------|-------------|
+| `note` | `note(text: str, scope: str = 'note', task_id: UUID | None = None, title: str | None = None, context: str = '', options: list[str | str] | None = None, chosen: str = '', rationale: str = '', consequences: list[str] | None = None, what_done: str = '', what_learned: str = '', what_struggled: str = '', next_steps: list[str] | None = None)` |
+| `evidence` | `evidence(task_id: UUID)` |
 

@@ -673,6 +673,80 @@ async def test_uncovered_parent_acs_empty_when_all_covered() -> None:
 
 
 @pytest.mark.asyncio
+async def test_parent_ac_coverage_maps_claimed_and_verified() -> None:
+    # Per-criterion visibility: a COMPLETED child both claims and verifies its
+    # criterion; an in-flight child only claims; an untouched criterion is
+    # neither. This is the digest a decomposing PM reads from the briefing.
+    parent = _build_task(
+        acceptance_criteria=["crit a", "crit b", "crit c"],
+        acceptance_criteria_ids=["id-a", "id-b", "id-c"],
+    )
+    svc = _svc_with_children(
+        parent,
+        [
+            (TaskStatus.COMPLETED, ["id-a"]),
+            (TaskStatus.IN_PROGRESS, ["id-b"]),
+        ],
+    )
+    assert await svc.parent_ac_coverage(parent.id) == [
+        {"id": "id-a", "text": "crit a", "claimed": True, "verified": True},
+        {"id": "id-b", "text": "crit b", "claimed": True, "verified": False},
+        {"id": "id-c", "text": "crit c", "claimed": False, "verified": False},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_parent_ac_coverage_empty_without_ac_ids() -> None:
+    # No stable ids on the parent (e.g. created before the linkage) -> nothing to
+    # report; the digest stays absent rather than emitting bogus rows.
+    parent = _build_task(acceptance_criteria=["a"], acceptance_criteria_ids=[])
+    svc = _svc_with_children(parent, [(TaskStatus.IN_PROGRESS, ["id-a"])])
+    assert await svc.parent_ac_coverage(parent.id) == []
+
+
+@pytest.mark.asyncio
+async def test_unclaimed_parent_acs_inert_without_declared_coverage() -> None:
+    # The decomposition floor is opt-in: with no child declaring parent_ac_refs
+    # it returns [] so a PM who never adopts coverage is never blocked at idle.
+    parent = _build_task(
+        acceptance_criteria=["a", "b"], acceptance_criteria_ids=["id-a", "id-b"]
+    )
+    svc = _svc_with_children(
+        parent, [(TaskStatus.IN_PROGRESS, []), (TaskStatus.IN_PROGRESS, [])]
+    )
+    assert await svc.unclaimed_parent_acceptance_criteria(parent.id) == []
+
+
+@pytest.mark.asyncio
+async def test_unclaimed_parent_acs_counts_live_children_not_just_completed() -> None:
+    # The distinction from the roll-up gate: an in-flight child *claims* its
+    # criterion (so the decomposition floor is satisfied) even though it has not
+    # yet *verified* it (so the roll-up gate still flags it). A cancelled child's
+    # claim does not count -- its work died with it.
+    parent = _build_task(
+        acceptance_criteria=["crit a", "crit b", "crit c"],
+        acceptance_criteria_ids=["id-a", "id-b", "id-c"],
+    )
+    rows = [
+        (TaskStatus.IN_PROGRESS, ["id-a"]),  # live -> claims crit a
+        (TaskStatus.CANCELLED, ["id-b"]),  # cancelled -> claim void
+    ]
+    # unclaimed: crit a is claimed by the live child; crit b (only the cancelled
+    # child) and crit c (nobody) remain.
+    assert await _svc_with_children(parent, rows).unclaimed_parent_acceptance_criteria(
+        parent.id
+    ) == ["crit b", "crit c"]
+    # roll-up still flags crit a too: the live child has not COMPLETED it.
+    assert await _svc_with_children(parent, rows).uncovered_parent_acceptance_criteria(
+        parent.id
+    ) == [
+        "crit a",
+        "crit b",
+        "crit c",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_unblock_with_branch_resumes_in_progress() -> None:
     # A task claimed (has a branch) before it blocked resumes in_progress.
     task = _build_task(

@@ -12,7 +12,7 @@
 | `give_me_work` | `give_me_work()` |
 | `i_am_blocked` | `i_am_blocked(task_id: UUID, reason: str, blocker_type: str | None = None, what_needed: str | None = None)` |
 | `i_am_idle` | `i_am_idle()` |
-| `pass_review` | `pass_review(task_id: UUID, notes: str)` |
+| `pass_review` | `pass_review(task_id: UUID, notes: str, ac_verdicts: list[str] | None = None)` |
 | `resume` | `resume(task_id: UUID)` |
 | `unclaim` | `unclaim(task_id: UUID)` |
 
@@ -27,4 +27,5 @@
 | `notify_list` | `notify_list(unread_only: bool = True, pending_ack_only: bool = False, limit: int = 20)` |
 | `notify_get` | `notify_get(notification_id: UUID)` |
 | `notify_ack` | `notify_ack(notification_id: UUID)` |
+| `read_messages` | `read_messages()` |
 | `channels` | `channels()` |

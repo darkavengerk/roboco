@@ -203,3 +203,63 @@ async def test_i_am_idle_allows_dev_owning_awaiting_pm_review() -> None:
     env = await c.i_am_idle(agent_id)
     assert env.status == "idle"
     task_svc.mark_agent_idle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_i_am_idle_refuses_pm_with_uncovered_decomposition() -> None:
+    """A PM that declared coverage but left a parent criterion unclaimed cannot
+    idle — the decomposition floor (Spec 2)."""
+    agent_id = uuid4()
+    parent_id = uuid4()
+    parent = MagicMock(id=parent_id, status="in_progress")
+    task_svc = AsyncMock()
+    task_svc.list_assigned_for_agent.return_value = [parent]
+    task_svc.list_in_progress_for_agent.return_value = [parent]
+    task_svc.agent_for.return_value = MagicMock(role="cell_pm")
+    task_svc.unclaimed_parent_acceptance_criteria.return_value = ["crit b", "crit c"]
+    deps = _make_deps(task=task_svc)
+    c = Choreographer(deps)
+
+    env = await c.i_am_idle(agent_id)
+    body = env.as_dict()
+    assert body["error"] == "invalid_state"
+    assert str(parent_id) in body["message"]
+    assert "covers_parent_criteria" in body["remediate"]
+    assert "crit b" in body["remediate"] and "crit c" in body["remediate"]
+    task_svc.mark_agent_idle.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_i_am_idle_allows_pm_with_full_coverage() -> None:
+    """Coverage primitive returns [] (covered or undeclared) -> PM idles through."""
+    agent_id = uuid4()
+    parent = MagicMock(id=uuid4(), status="in_progress")
+    task_svc = AsyncMock()
+    task_svc.list_assigned_for_agent.return_value = [parent]
+    task_svc.list_in_progress_for_agent.return_value = []
+    task_svc.agent_for.return_value = MagicMock(role="cell_pm")
+    task_svc.unclaimed_parent_acceptance_criteria.return_value = []
+    deps = _make_deps(task=task_svc)
+    c = Choreographer(deps)
+
+    env = await c.i_am_idle(agent_id)
+    assert env.status == "idle"
+    task_svc.mark_agent_idle.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_i_am_idle_decomposition_guard_is_pm_only() -> None:
+    """The decomposition floor is PM-only: a developer never hits it even with a
+    (hypothetical) unclaimed list, and the coverage primitive is not consulted."""
+    agent_id = uuid4()
+    parent = MagicMock(id=uuid4(), status="in_progress")
+    task_svc = AsyncMock()
+    task_svc.list_assigned_for_agent.return_value = [parent]
+    task_svc.list_in_progress_for_agent.return_value = []
+    task_svc.agent_for.return_value = MagicMock(role="developer")
+    deps = _make_deps(task=task_svc)
+    c = Choreographer(deps)
+
+    env = await c.i_am_idle(agent_id)
+    assert env.status == "idle"
+    task_svc.unclaimed_parent_acceptance_criteria.assert_not_awaited()

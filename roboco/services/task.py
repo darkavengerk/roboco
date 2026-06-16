@@ -5671,6 +5671,51 @@ class TaskService(BaseService):
         statuses = result.scalars().all()
         return all(s in terminal for s in statuses)
 
+    async def _parent_ac_ref_sets(
+        self, task_id: UUID
+    ) -> tuple[TaskTable, set[str], set[str], bool] | None:
+        """Load a parent and its children's parent-AC-ref coverage sets.
+
+        Shared core of the three AC-coverage primitives. Returns ``None`` when
+        the parent is missing or has no stable criterion ids (nothing to cover).
+        Otherwise ``(parent, claimed, verified, any_declared)`` where
+        ``claimed`` is the union of parent_ac_refs over all non-cancelled
+        children, ``verified`` the union over COMPLETED children only, and
+        ``any_declared`` whether *any* child declared a ref at all (the
+        safe-by-construction inertness signal — a cancelled-only declaration
+        still counts as "coverage tracking is active here").
+        """
+        parent = await self.get(task_id)
+        if not parent or not parent.acceptance_criteria_ids:
+            return None
+        result = await self.session.execute(
+            select(TaskTable.status, TaskTable.parent_ac_refs).where(
+                TaskTable.parent_task_id == task_id
+            )
+        )
+        claimed: set[str] = set()
+        verified: set[str] = set()
+        any_declared = False
+        for status, refs in result.all():
+            refset = set(refs or [])
+            any_declared = any_declared or bool(refset)
+            if status != TaskStatus.CANCELLED:
+                claimed |= refset
+            if status == TaskStatus.COMPLETED:
+                verified |= refset
+        return parent, claimed, verified, any_declared
+
+    @staticmethod
+    def _criteria_texts_not_in(parent: TaskTable, covered: set[str]) -> list[str]:
+        """Texts of the parent criteria whose id is not in ``covered``."""
+        ids = parent.acceptance_criteria_ids or []
+        texts = parent.acceptance_criteria or []
+        return [
+            texts[idx] if idx < len(texts) else ac_id
+            for idx, ac_id in enumerate(ids)
+            if ac_id not in covered
+        ]
+
     async def uncovered_parent_acceptance_criteria(self, task_id: UUID) -> list[str]:
         """Parent ACs not yet satisfied by a COMPLETED child — for the roll-up gate.
 
@@ -5682,28 +5727,61 @@ class TaskService(BaseService):
         COMPLETED (cancelled children do not count — their work did not pass QA).
         Returns the uncovered criterion *texts* for a human-readable rejection.
         """
-        parent = await self.get(task_id)
-        if not parent or not parent.acceptance_criteria:
+        loaded = await self._parent_ac_ref_sets(task_id)
+        if loaded is None:
             return []
-        result = await self.session.execute(
-            select(TaskTable.status, TaskTable.parent_ac_refs).where(
-                TaskTable.parent_task_id == task_id
-            )
-        )
-        rows = list(result.all())
-        if not any((refs or []) for _status, refs in rows):
-            # Decomposition predates coverage tracking — do not enforce.
+        parent, _claimed, verified, any_declared = loaded
+        if not any_declared:
             return []
-        covered: set[str] = set()
-        for status, refs in rows:
-            if status == TaskStatus.COMPLETED:
-                covered.update(refs or [])
+        return self._criteria_texts_not_in(parent, verified)
+
+    async def unclaimed_parent_acceptance_criteria(self, task_id: UUID) -> list[str]:
+        """Parent ACs not claimed by any live child — the decomposition floor.
+
+        Spec-2 counterpart of ``uncovered_parent_acceptance_criteria`` (the
+        roll-up gate): where that one asks whether every criterion is satisfied
+        by a COMPLETED child, this asks the earlier, weaker question — has every
+        criterion been *claimed* by some still-live subtask? Used at PM exit
+        (``i_am_idle``) so a PM cannot finish decomposing while a parent
+        criterion has no subtask responsible for it (the "two leaves, half the
+        ACs dropped" pattern). Safe-by-construction: inert (``[]``) until a PM
+        declares coverage on at least one child, mirroring the roll-up gate.
+        Returns the uncovered criterion texts for a human-readable rejection.
+        """
+        loaded = await self._parent_ac_ref_sets(task_id)
+        if loaded is None:
+            return []
+        parent, claimed, _verified, any_declared = loaded
+        if not any_declared:
+            return []
+        return self._criteria_texts_not_in(parent, claimed)
+
+    async def parent_ac_coverage(self, task_id: UUID) -> list[dict[str, Any]]:
+        """Per-criterion decomposition coverage for a parent task.
+
+        For each parent acceptance criterion returns its stable id, text, and
+        whether some live (non-cancelled) child claims it via ``parent_ac_refs``
+        (``claimed``) and whether a COMPLETED child does (``verified``). Returns
+        ``[]`` when the task has no ``acceptance_criteria_ids``. Unlike the gate
+        primitives this is deliberately NOT inert when coverage is undeclared —
+        it always reports the parent's criteria so a decomposing PM can see, per
+        delegate, which criteria still lack a subtask. Visibility source for the
+        decomposition briefing; the gates read the inert variants instead.
+        """
+        loaded = await self._parent_ac_ref_sets(task_id)
+        if loaded is None:
+            return []
+        parent, claimed, verified, _any = loaded
         ids = parent.acceptance_criteria_ids or []
         texts = parent.acceptance_criteria or []
         return [
-            texts[idx] if idx < len(texts) else ac_id
+            {
+                "id": ac_id,
+                "text": texts[idx] if idx < len(texts) else ac_id,
+                "claimed": ac_id in claimed,
+                "verified": ac_id in verified,
+            }
             for idx, ac_id in enumerate(ids)
-            if ac_id not in covered
         ]
 
     async def set_plan(
