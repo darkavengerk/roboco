@@ -2399,6 +2399,7 @@ class AgentOrchestrator:
         "product_owner": _COMMON_BUILTIN_TOOLS,
         "head_marketing": _COMMON_BUILTIN_TOOLS,
         "auditor": _COMMON_BUILTIN_TOOLS,
+        "pr_reviewer": _COMMON_BUILTIN_TOOLS,
     }
 
     def _build_tool_load_block(self, role: str) -> str:
