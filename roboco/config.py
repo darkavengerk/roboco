@@ -308,6 +308,41 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # External-PR review ("engine 3") — DORMANT by default
+    # ==========================================================================
+    # An inbound path: a background loop that lists open PRs per active project,
+    # flags ones from external/fork authors, and creates a one-shot review task
+    # for the dedicated reviewer agent. Default OFF — the loop never starts and
+    # no inbound GitHub call is made until the CEO opts in. Untrusted contributor
+    # code is never fetched or executed until ``confirmed_by_human`` is set.
+    external_pr_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for inbound external-PR review. OFF by default; "
+            "when off the poll loop does not run at all."
+        ),
+    )
+    external_pr_poll_interval_seconds: int = Field(
+        default=300,
+        ge=60,
+        description="Seconds between inbound external-PR discovery passes.",
+    )
+    external_pr_author_allowlist: list[str] = Field(
+        default_factory=list,
+        description=(
+            "GitHub usernames trusted as known contributors. Empty means no "
+            "author is auto-trusted; every external PR needs human confirmation."
+        ),
+    )
+    external_pr_require_human_confirm: bool = Field(
+        default=True,
+        description=(
+            "Require an explicit human confirmation before any agent fetches, "
+            "checks out, or executes external contributor code."
+        ),
+    )
+
+    # ==========================================================================
     # Workspaces (Multi-Agent Git)
     # ==========================================================================
     workspaces_root: str = Field(
