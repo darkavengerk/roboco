@@ -58,6 +58,7 @@ from roboco.models.runtime import (
     WaitingRecord,
 )
 from roboco.seeds.initial_data import AGENT_UUIDS
+from roboco.services.task import PR_REVIEW_SOURCES
 
 logger = structlog.get_logger()
 
@@ -4626,15 +4627,17 @@ Start by:
                 logger.exception("strategy engine cycle failed")
 
     async def _external_pr_poll_loop(self) -> None:
-        """Engine 3: discover inbound external PRs and open review tasks.
+        """Engine 3: discover inbound PRs and open review tasks.
 
-        Dormant by default — returns immediately unless ``external_pr_enabled``,
-        so a standard deployment makes no inbound GitHub call. This only lists
-        open PRs and records a review task per newly-seen external one; it never
-        fetches or runs contributor code (that waits on a human confirmation
-        downstream). New review tasks wake the dispatcher.
+        Dormant by default — returns immediately unless ``external_pr_enabled``
+        OR ``internal_pr_enabled``, so a standard deployment makes no inbound
+        GitHub call. This only lists open PRs and records a review task per
+        newly-seen reviewable one (external/fork PRs, and — when internal review
+        is on — org-repo PRs not tied to an active task); it never fetches or
+        runs contributor code (that waits on a human confirmation downstream).
+        New review tasks wake the dispatcher.
         """
-        if not settings.external_pr_enabled:
+        if not (settings.external_pr_enabled or settings.internal_pr_enabled):
             return
         from roboco.db import get_db_context
 
@@ -4686,8 +4689,10 @@ Start by:
 
         Repo-aware: collapses active projects to one canonical project per
         distinct repo (so a monorepo product yields ONE review per PR, not one
-        per cell-project), lists each repo's open PRs, keeps the external ones,
-        and ingests a de-duped review task for each. Commits once at the end.
+        per cell-project), lists each repo's open PRs, and ingests a de-duped
+        review task for each reviewable one — external/fork PRs, and (when
+        internal review is on) org-repo PRs not tied to an active task. Commits
+        once at the end.
         """
         from roboco.services.git import GitService
         from roboco.services.project import get_project_service
@@ -4701,21 +4706,53 @@ Start by:
         ingested = 0
         for project in self._projects_one_per_repo(projects):
             for pr in await git.list_open_prs(project.slug):
-                number = pr.get("number")
-                if number is None or not self._is_external_pr(pr):
-                    continue
-                if not self._pr_author_allowed(pr, allowlist):
-                    continue
-                created = await task_service.ingest_external_pr(
-                    project_id=cast("UUID", project.id),
-                    pr=pr,
-                    created_by=system_id,
-                    team=Team.BOARD,
-                )
-                if created is not None:
+                if await self._ingest_pr_if_reviewable(
+                    task_service, project, pr, system_id, allowlist
+                ):
                     ingested += 1
         await db.commit()
         return ingested
+
+    async def _ingest_pr_if_reviewable(
+        self,
+        task_service: "TaskService",
+        project: Any,
+        pr: dict[str, Any],
+        system_id: "UUID",
+        allowlist: set[str],
+    ) -> bool:
+        """Ingest a review task for one open PR if it qualifies; True if ingested.
+
+        External/fork PRs (when external review is on and the author is allowed)
+        are ingested as ``external_pr``. Org-repo PRs whose head branch no active
+        task owns (when internal review is on) are ingested as ``internal_pr`` —
+        the org's own in-flight integration PRs are skipped, since a live task
+        owns their branch and they already pass QA + PM review.
+        """
+        if pr.get("number") is None:
+            return False
+        if self._is_external_pr(pr):
+            if not settings.external_pr_enabled or not self._pr_author_allowed(
+                pr, allowlist
+            ):
+                return False
+            source = "external_pr"
+        else:
+            if not settings.internal_pr_enabled:
+                return False
+            if await task_service.active_task_owns_branch(
+                str(pr.get("head_ref") or "")
+            ):
+                return False
+            source = "internal_pr"
+        created = await task_service.ingest_external_pr(
+            project_id=cast("UUID", project.id),
+            pr=pr,
+            created_by=system_id,
+            team=Team.BOARD,
+            source=source,
+        )
+        return created is not None
 
     async def _close_superseded_prs(
         self, git: Any, task_service: Any, system_id: "UUID"
@@ -4818,8 +4855,8 @@ Start by:
         async with self._supersede_lock, get_db_context() as db:
             task_service = get_task_service(db)
             review = await task_service.get(review_task_id)
-            if review is None or getattr(review, "source", "") != "external_pr":
-                return {"ok": False, "error": "not an external-PR review task"}
+            if review is None or getattr(review, "source", "") not in PR_REVIEW_SOURCES:
+                return {"ok": False, "error": "not a PR-review task"}
             if not review.project_id or not review.pr_number:
                 return {
                     "ok": False,
@@ -6674,7 +6711,7 @@ Start now: evidence(task_id="{task_id}")
                 continue
             # External-PR review tasks are owned by _dispatch_pr_review_work; the
             # PM hierarchy never routes or spawns them.
-            if task.get("source") == "external_pr":
+            if task.get("source") in PR_REVIEW_SOURCES:
                 continue
             assigned_to = task.get("assigned_to")
             if assigned_to:
@@ -7009,7 +7046,7 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
                 continue
             # External-PR review tasks belong to the pr_reviewer, never a dev —
             # _dispatch_pr_review_work owns them.
-            if task.get("source") == "external_pr":
+            if task.get("source") in PR_REVIEW_SOURCES:
                 continue
             await self._dev_dispatch_one(client, task)
 
@@ -7265,7 +7302,7 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
             return
         tasks = await self._fetch_tasks(client, "pending")
         for task in tasks:
-            if task.get("source") != "external_pr":
+            if task.get("source") not in PR_REVIEW_SOURCES:
                 continue
             if self._is_task_handled_this_tick(task.get("id")):
                 continue

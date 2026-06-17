@@ -341,6 +341,16 @@ class Settings(BaseSettings):
             "checks out, or executes external contributor code."
         ),
     )
+    internal_pr_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the internal-PR safety reviewer. OFF by default. "
+            "When on, the same poll also reviews org-repo (non-fork) PRs that are "
+            "NOT tied to an active task — i.e. branches pushed outside the agent "
+            "task-flow. The org's own in-flight integration PRs (whose branch a "
+            "live task owns) are skipped, since they already pass QA + PM review."
+        ),
+    )
 
     # ==========================================================================
     # Workspaces (Multi-Agent Git)

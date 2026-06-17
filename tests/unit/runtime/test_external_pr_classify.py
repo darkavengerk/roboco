@@ -8,8 +8,11 @@ side) for anything it does not positively recognize as internal.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
+import roboco.runtime.orchestrator as orch_mod
 from roboco.runtime.orchestrator import AgentOrchestrator
 
 
@@ -100,3 +103,96 @@ def test_pr_author_allowed(
 )
 def test_parse_supersede_pr(quick_context: str, expected: int | None) -> None:
     assert AgentOrchestrator._parse_supersede_pr(quick_context) == expected
+
+
+# ---------------------------------------------------------------------------
+# _ingest_pr_if_reviewable — the external/internal review decision (#3)
+# ---------------------------------------------------------------------------
+
+
+def _orch() -> AgentOrchestrator:
+    """A bare orchestrator — the method only uses staticmethods + the service."""
+    return object.__new__(AgentOrchestrator)
+
+
+def _svc(*, owns_branch: bool = False) -> MagicMock:
+    svc = MagicMock()
+    svc.ingest_external_pr = AsyncMock(return_value=object())  # truthy "created"
+    svc.active_task_owns_branch = AsyncMock(return_value=owns_branch)
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_ingest_external_fork_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(orch_mod.settings, "external_pr_enabled", True)
+    svc = _svc()
+    pr = {"number": 5, "is_fork": True, "user_login": "corey", "head_ref": "x"}
+    ok = await _orch()._ingest_pr_if_reviewable(
+        svc, SimpleNamespace(id=uuid4()), pr, uuid4(), set()
+    )
+    assert ok is True
+    assert svc.ingest_external_pr.await_args.kwargs["source"] == "external_pr"
+
+
+@pytest.mark.asyncio
+async def test_skip_external_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(orch_mod.settings, "external_pr_enabled", False)
+    svc = _svc()
+    pr = {"number": 5, "is_fork": True, "user_login": "corey"}
+    ok = await _orch()._ingest_pr_if_reviewable(
+        svc, SimpleNamespace(id=uuid4()), pr, uuid4(), set()
+    )
+    assert ok is False
+    svc.ingest_external_pr.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ingest_internal_off_task_flow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A non-fork org PR no live task owns is an off-task-flow PR → review it.
+    monkeypatch.setattr(orch_mod.settings, "internal_pr_enabled", True)
+    svc = _svc(owns_branch=False)
+    pr = {
+        "number": 9,
+        "is_fork": False,
+        "author_association": "MEMBER",
+        "head_ref": "hotfix/manual",
+    }
+    ok = await _orch()._ingest_pr_if_reviewable(
+        svc, SimpleNamespace(id=uuid4()), pr, uuid4(), set()
+    )
+    assert ok is True
+    assert svc.ingest_external_pr.await_args.kwargs["source"] == "internal_pr"
+
+
+@pytest.mark.asyncio
+async def test_skip_internal_lifecycle_pr(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A live task owns the branch → it's the org's own integration PR → skip.
+    monkeypatch.setattr(orch_mod.settings, "internal_pr_enabled", True)
+    svc = _svc(owns_branch=True)
+    pr = {
+        "number": 9,
+        "is_fork": False,
+        "author_association": "MEMBER",
+        "head_ref": "feature/main_pm/abc",
+    }
+    ok = await _orch()._ingest_pr_if_reviewable(
+        svc, SimpleNamespace(id=uuid4()), pr, uuid4(), set()
+    )
+    assert ok is False
+    svc.ingest_external_pr.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_skip_internal_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(orch_mod.settings, "internal_pr_enabled", False)
+    svc = _svc()
+    pr = {"number": 9, "is_fork": False, "author_association": "MEMBER"}
+    ok = await _orch()._ingest_pr_if_reviewable(
+        svc, SimpleNamespace(id=uuid4()), pr, uuid4(), set()
+    )
+    assert ok is False
+    svc.ingest_external_pr.assert_not_awaited()

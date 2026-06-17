@@ -365,6 +365,13 @@ def extract_required_cells(quick_context: str | None) -> list[str]:
     return []
 
 
+# Review-task sources. The inbound-PR reviewer handles both external/fork PRs
+# and (when enabled) internal org-repo PRs that bypassed the agent task-flow.
+# Dispatch, dedup, the decision surface, the git-gate exemption, and supersede
+# are identical for both, so they share this set.
+PR_REVIEW_SOURCES = ("external_pr", "internal_pr")
+
+
 _SUPERSEDE_MARKER_PREFIX = "external_pr_supersede"
 
 
@@ -456,7 +463,7 @@ class TaskService(BaseService):
             is_coordination=(task.project_id is None and task.product_id is not None),
             # An external-PR review task reviews someone else's PR read-only —
             # no branch of its own — so it is branch-gate exempt.
-            is_external_review=(getattr(task, "source", "manual") == "external_pr"),
+            is_external_review=(getattr(task, "source", "manual") in PR_REVIEW_SOURCES),
         )
         validate_git_requirements(current, target, git_ctx)
 
@@ -680,7 +687,7 @@ class TaskService(BaseService):
         result = await self.session.execute(
             select(TaskTable.quick_context).where(
                 TaskTable.project_id == project_id,
-                TaskTable.source == "external_pr",
+                TaskTable.source.in_(PR_REVIEW_SOURCES),
                 TaskTable.pr_number == pr_number,
             )
         )
@@ -703,16 +710,17 @@ class TaskService(BaseService):
         pr: dict[str, Any],
         created_by: UUID,
         team: Team,
+        source: str = "external_pr",
     ) -> TaskTable | None:
-        """Create one review task for a newly-seen external PR; ``None`` if it exists.
+        """Create one review task for a newly-seen inbound PR; ``None`` if it exists.
 
         ``pr`` is a normalized record from ``GitService.list_open_prs`` (number,
         url, title, head_sha). De-duped per ``(project_id, pr_number, head_sha)``
-        — re-polling an unchanged PR is skipped, but new commits (a new head SHA)
-        open a fresh review (see ``external_review_task_exists``).
-        The task is CODE-typed with ``source='external_pr'`` and
-        ``confirmed_by_human=False`` — a deliberate gate: no agent fetches, checks
-        out, or runs the contributor's code until a human confirms the PR. Caller
+        across both review sources — re-polling an unchanged PR is skipped, but
+        new commits (a new head SHA) open a fresh review (see
+        ``external_review_task_exists``). ``source`` is ``external_pr`` (fork /
+        untrusted) or ``internal_pr`` (an org-repo PR opened outside the agent
+        task-flow). Both are CODE-typed with ``confirmed_by_human=False``. Caller
         commits.
         """
         pr_number = int(pr["number"])
@@ -721,16 +729,25 @@ class TaskService(BaseService):
         head_sha = str(pr.get("head_sha") or "")
         if await self.external_review_task_exists(project_id, pr_number, head_sha):
             return None
-        title = f"Review external PR #{pr_number}: {pr_title}".strip()
+        kind = "internal" if source == "internal_pr" else "external"
+        title = f"Review {kind} PR #{pr_number}: {pr_title}".strip()
+        if source == "internal_pr":
+            description = (
+                f"An internal PR #{pr_number} ({pr_url}) was opened on an org repo "
+                "outside the agent task-flow — no active task owns its branch. "
+                "Review it adversarially and post a single, complete change-request "
+                "with per-criterion findings."
+            )
+        else:
+            description = (
+                f"An external contributor opened PR #{pr_number} ({pr_url}).\n\n"
+                "Review it adversarially and post a single, complete change-request "
+                "with per-criterion findings. Do not fetch, check out, or run the "
+                "contributor's code until a human has confirmed this PR."
+            )
         req = TaskCreateRequest(
             title=title[:200],
-            description=(
-                f"An external contributor opened PR #{pr_number} ({pr_url}).\n\n"
-                "Review it adversarially and post a single, complete "
-                "change-request with per-criterion findings. Do not fetch, check "
-                "out, or run the contributor's code until a human has confirmed "
-                "this PR."
-            ),
+            description=description,
             acceptance_criteria=[
                 "Exactly one complete GitHub review is posted with per-criterion "
                 "findings",
@@ -741,7 +758,7 @@ class TaskService(BaseService):
             nature=TaskNature.TECHNICAL,
             estimated_complexity=Complexity.MEDIUM,
             project_id=project_id,
-            source="external_pr",
+            source=source,
             confirmed_by_human=False,
         )
         task = await self.create(req)
@@ -754,6 +771,24 @@ class TaskService(BaseService):
         await self.session.flush()
         return task
 
+    async def active_task_owns_branch(self, branch_name: str) -> bool:
+        """True if a non-terminal task already owns this git branch.
+
+        Lets the internal-PR reviewer skip the org's own in-flight integration
+        PRs — those whose head branch a live task created via the agent
+        task-flow (and which therefore already pass QA + PM review) — and review
+        only org-repo PRs opened outside that flow.
+        """
+        if not branch_name:
+            return False
+        result = await self.session.execute(
+            select(TaskTable.id).where(
+                TaskTable.branch_name == branch_name,
+                TaskTable.status.notin_([TaskStatus.COMPLETED, TaskStatus.CANCELLED]),
+            )
+        )
+        return result.first() is not None
+
     async def list_external_pr_reviews_awaiting_decision(self) -> list[TaskTable]:
         """Completed external-PR reviews still awaiting the CEO's decision.
 
@@ -764,7 +799,7 @@ class TaskService(BaseService):
         """
         result = await self.session.execute(
             select(TaskTable).where(
-                TaskTable.source == "external_pr",
+                TaskTable.source.in_(PR_REVIEW_SOURCES),
                 TaskTable.status == TaskStatus.COMPLETED,
                 TaskTable.confirmed_by_human.is_(False),
             )
@@ -792,7 +827,7 @@ class TaskService(BaseService):
         """
         result = await self.session.execute(
             select(TaskTable).where(
-                TaskTable.source == "external_pr",
+                TaskTable.source.in_(PR_REVIEW_SOURCES),
                 TaskTable.status != TaskStatus.CANCELLED,
                 or_(
                     TaskTable.status != TaskStatus.COMPLETED,
@@ -814,7 +849,7 @@ class TaskService(BaseService):
         is missing or is not an external-PR review.
         """
         task = await self.get(task_id)
-        if task is None or getattr(task, "source", "") != "external_pr":
+        if task is None or getattr(task, "source", "") not in PR_REVIEW_SOURCES:
             return None
         if "dismissed=1" not in (task.quick_context or "").split():
             task.quick_context = f"{task.quick_context or ''} dismissed=1".strip()
@@ -901,7 +936,7 @@ class TaskService(BaseService):
         task is missing or is not an external-PR review.
         """
         review = await self.get(review_task_id)
-        if review is None or getattr(review, "source", "") != "external_pr":
+        if review is None or getattr(review, "source", "") not in PR_REVIEW_SOURCES:
             return None
         pr_number = review.pr_number
         req = TaskCreateRequest(

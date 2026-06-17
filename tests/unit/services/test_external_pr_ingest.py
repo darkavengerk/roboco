@@ -108,3 +108,35 @@ async def test_dismiss_rejects_non_external_pr() -> None:
     svc = TaskService(session)
     _bind(svc, "get", AsyncMock(return_value=task))
     assert await svc.dismiss_external_pr_review(uuid4()) is None
+
+
+# ---------------------------------------------------------------------------
+# active_task_owns_branch — the internal-PR "is this a lifecycle PR?" check (#3)
+# ---------------------------------------------------------------------------
+
+
+def _branch_service(*, found: bool) -> TaskService:
+    res = MagicMock()
+    res.first.return_value = ("some-task-id",) if found else None
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=res)
+    return TaskService(session)
+
+
+@pytest.mark.asyncio
+async def test_active_task_owns_branch_true_when_live_task_holds_it() -> None:
+    assert (
+        await _branch_service(found=True).active_task_owns_branch("feature/x") is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_task_owns_branch_false_when_no_live_task() -> None:
+    svc = _branch_service(found=False)
+    assert await svc.active_task_owns_branch("feature/x") is False
+
+
+@pytest.mark.asyncio
+async def test_active_task_owns_branch_false_for_empty_branch() -> None:
+    # No branch → cannot be owned; never hits the DB.
+    assert await TaskService(MagicMock()).active_task_owns_branch("") is False
