@@ -42,7 +42,10 @@ note(
     title="Task breakdown for [feature]",
 )
 
-# 3. Delegate a subtask to each cell PM (parent must be in_progress)
+# 3. Delegate a subtask to each cell PM (parent must be in_progress).
+#    Args are flat keywords (no nested body=); the subtask inherits the
+#    parent's project — for a product-linked coordination root the cell->project
+#    map resolves it server-side, so you never pass project_id.
 delegate(
     parent_task_id=initiative_id,
     title="Backend: Implement API",
@@ -50,10 +53,10 @@ delegate(
     assigned_to="be-pm",
     team="backend",
     task_type="planning",
-    nature="...",
-    estimated_complexity="...",
+    nature="technical",
     acceptance_criteria=["..."],
-    project_id="<project-uuid>",
+    estimated_complexity="medium",
+    covers_parent_criteria=["<initiative-ac-id>", "..."],
 )
 
 # 4. Open a coordination session for the related subtasks
@@ -91,10 +94,25 @@ Registering repositories and storing git tokens is **not** an agent action — i
 
 ## Handling Cell PM Escalations
 
-When a Cell PM escalates:
+When a Cell PM escalates (`escalate_up`):
 1. Review cross-cell impact
 2. Coordinate with other Cell PMs if needed
 3. Make the decision (`unblock`, `complete`) or escalate up
+
+This is for *help while work is in flight*. Finished cell-scoped work arrives by a different path — `submit_up` (below).
+
+## Integrating cell work + completing the root
+
+You own the integration-branch chain and the master PR. Cell PMs `submit_up(task_id, notes)` their finished cell-scoped tasks to you; they merge only their own cell/leaf PRs and never touch master (see the Cell PM role doc, "Submitting Finished Work Up").
+
+```
+master  ←  feature/main_pm/{root}   ←  feature/{cell}/{root}/{cell-pm}  ←  dev branches
+(you + CEO)        (you)                      (cell PM)                        (devs)
+```
+
+- A cell PM's `complete` merges a leaf PR into its cell branch; `submit_up` then hands the cell-scoped result to you.
+- Your `complete(root_task_id, notes)` on the **root** parent is what opens/merges the master-bound PR — once every cell's subtasks are terminal.
+- For major work, escalate the finished root to the CEO with `escalate_to_ceo(root_task_id, reason)` instead; the CEO approves and merges from the panel. Only Main PM and the CEO ever act on master.
 
 ## A2A
 

@@ -42,18 +42,22 @@ give_me_work() → returns a pending parent task assigned to you
 i_will_plan(task_id, plan)  → claims + starts + auto-creates the parent
                               branch feature/{team}/{root}/{your_id}
 delegate(parent_task_id=..., title=..., description=...,
-         body={"assigned_to": "be-dev-1", "team": "backend",
-               "task_type": "code", "acceptance_criteria": [...]})
+         assigned_to="be-dev-1", team="backend", task_type="code",
+         nature="technical", acceptance_criteria=[...],
+         covers_parent_criteria=[...])
                               → creates a subtask, child branch will
                                 fork off yours when the dev claims it
 
 triage()                       → scan your cell's queue
 unblock(task_id, restore=True) → unblock + restore prior status
+reassign(task_id, new_assignee) → hand a claimed/in_progress task to
+                                 another dev in your cell (WIP survives)
 complete(task_id, notes)       → merges the leaf PR; transitions task
                                  to completed (or escalates root parent
                                  to CEO via Main PM)
 
-submit_up(task_id, notes)      → bubble cell-scoped completion up
+submit_up(task_id, notes)      → bubble finished cell-scoped work up to
+                                 Main PM, who integrates it (see below)
 escalate_up(task_id, reason)   → ask Main PM for help (cross-cell, etc.)
 unclaim(task_id) / resume(task_id) / i_am_idle()
 ```
@@ -62,7 +66,7 @@ unclaim(task_id) / resume(task_id) / i_am_idle()
 
 | MCP server            | Verbs you can call |
 |-----------------------|--------------------|
-| `roboco-flow`         | `give_me_work`, `i_will_plan`, `delegate`, `submit_up`, `triage`, `unblock`, `complete`, `escalate_up`, `unclaim`, `resume`, `i_am_idle` |
+| `roboco-flow`         | `give_me_work`, `i_will_plan`, `delegate`, `submit_up`, `triage`, `unblock`, `reassign`, `complete`, `escalate_up`, `unclaim`, `resume`, `i_am_idle` |
 | `roboco-do`           | `note`, `say`, `dm`, `notify`, `evidence` (no `commit`) |
 | `roboco-git-readonly` | `roboco_git_status`, `roboco_git_log`, `roboco_git_diff`, `roboco_git_branch_list` |
 | `roboco-optimal`      | `roboco_ask_mentor`, `roboco_kb_search` |
@@ -81,21 +85,21 @@ delegate(
     parent_task_id="<your-parent>",
     title="Implement Redis rate limiter",
     description="Token-bucket per-route, 100 req/s default.",
-    body={
-        "assigned_to": "be-dev-1",
-        "team": "backend",
-        "task_type": "code",
-        "acceptance_criteria": [
-            "POST /api/foo with 101 reqs in 1s returns 429",
-            "Redis key TTL matches the configured window",
-            "Tests cover happy path + boundary",
-        ],
-        "estimated_complexity": "medium",
-    },
+    assigned_to="be-dev-1",
+    team="backend",
+    task_type="code",
+    nature="technical",
+    acceptance_criteria=[
+        "POST /api/foo with 101 reqs in 1s returns 429",
+        "Redis key TTL matches the configured window",
+        "Tests cover happy path + boundary",
+    ],
+    estimated_complexity="medium",
+    covers_parent_criteria=["<parent-ac-id>", "..."],
 )
 ```
 
-`assigned_to` must be a slug your role can delegate to (cell PMs only delegate to their own team's dev / QA / doc — see `_validate_delegation_chain` in `roboco/services/gateway/choreographer/_impl.py`).
+The args are **flat keywords** (not a nested `body=` dict). `assigned_to` must be a slug your role can delegate to (cell PMs only delegate to their own team's dev / QA / doc — see `_validate_delegation_chain` in `roboco/services/gateway/choreographer/_impl.py`). `covers_parent_criteria` lists the parent acceptance-criterion ids this subtask is responsible for — split the parent's criteria across subtasks so their union covers ALL of them, or the parent won't roll up. The subtask inherits the parent's `project_id` automatically; you don't pass it.
 
 ## Completing Tasks
 
@@ -137,6 +141,12 @@ say(channel="backend-cell", text="Heads up — sprint cut at 18:00 UTC.")
 notify(target="be-dev-1", text="Please prioritise task X by EOD.",
        priority="high", task_id="...")
 ```
+
+## Submitting Finished Work Up
+
+When a cell-scoped task is done (QA green, docs landed, leaf PR merged into your cell branch via `complete`), `submit_up(task_id, notes)` hands it to **Main PM (main-pm)**. Main PM owns the integration branch and the master PR — it merges your cell branch up the chain and ultimately into master (you never open a master PR yourself). See the Main PM role doc, "Integrating cell work + completing the root."
+
+`submit_up` is for finished work moving up; `escalate_up` (below) is for *help* you need while work is still in flight.
 
 ## Escalating to Main PM
 
