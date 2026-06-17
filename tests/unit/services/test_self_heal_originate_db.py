@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
 import pytest
 from roboco.config import settings as cfg
@@ -208,3 +209,43 @@ async def test_loop_never_starts_or_approves(
     open_tasks = await get_task_service(db_session).list_open_self_heal_tasks()
     assert len(open_tasks) == ONE
     assert open_tasks[0].status == TaskStatus.PENDING  # never advanced by the loop
+
+
+@pytest.mark.asyncio
+async def test_ceo_approve_and_start_flips_the_confirmation_gate(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The opened task is unconfirmed (held out of dispatch); the CEO's
+    approve_and_start flips confirmed_by_human=True so it can then dispatch."""
+    await _seed_project(db_session)
+    # approve_and_start reassigns to the main-pm agent — seed it.
+    db_session.add(
+        AgentTable(
+            id=uuid4(),
+            name="Main PM",
+            slug="main-pm",
+            role=AgentRole.MAIN_PM,
+            team=Team.MAIN_PM,
+            status=AgentStatus.ACTIVE,
+            model_config={},
+            system_prompt="pm",
+            capabilities=[],
+            permissions={},
+            metrics={},
+        )
+    )
+    await db_session.flush()
+    _enable(monkeypatch)
+    # approve_and_start emits a stream event; stub it out (no bus in the test).
+    monkeypatch.setattr(TaskService, "_emit_task_event", AsyncMock())
+
+    await SelfHealEngine(
+        db_session, source=_FakeSource([_breach("ci:roboco")])
+    ).run_cycle()
+    task = (await get_task_service(db_session).list_open_self_heal_tasks())[0]
+    assert task.confirmed_by_human is False  # inert: held out of dispatch
+
+    started = await TaskService(db_session).approve_and_start(UUID(str(task.id)))
+    assert started is not None
+    assert started.confirmed_by_human is True  # gate flipped → now dispatchable
+    assert started.status == TaskStatus.PENDING  # reassignment, not a transition

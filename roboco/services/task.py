@@ -4444,6 +4444,14 @@ class TaskService(BaseService):
         # team and does not affect dispatch (which routes by assignee, not team).
         task.team = cast("Any", Team.MAIN_PM)
 
+        # A self-heal fix task is opened unconfirmed and held OUT of dispatch
+        # until here (the PM dispatcher skips source='self_heal' while
+        # confirmed_by_human is False). The CEO's Approve-&-Start IS that human
+        # confirmation, so flip the gate now and the task dispatches normally.
+        # Other sources don't carry this hold and are unaffected.
+        if getattr(task, "source", "") == SELF_HEAL_SOURCE:
+            task.confirmed_by_human = True
+
         if notes:
             existing = task.quick_context or ""
             entry = f"approve_and_start_notes:{notes}"

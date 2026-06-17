@@ -58,7 +58,7 @@ from roboco.models.runtime import (
     WaitingRecord,
 )
 from roboco.seeds.initial_data import AGENT_UUIDS
-from roboco.services.task import PR_REVIEW_SOURCES
+from roboco.services.task import PR_REVIEW_SOURCES, SELF_HEAL_SOURCE
 
 logger = structlog.get_logger()
 
@@ -6756,6 +6756,17 @@ Start now: evidence(task_id="{task_id}")
             # External-PR review tasks are owned by _dispatch_pr_review_work; the
             # PM hierarchy never routes or spawns them.
             if task.get("source") in PR_REVIEW_SOURCES:
+                continue
+            # A self-heal fix task is opened by the loop but must stay INERT until
+            # the CEO Approve-&-Starts it (which flips confirmed_by_human). Until
+            # then the PM hierarchy must not route, assign, or spawn it — even
+            # though it's already team=main_pm. It still appears in the panel so
+            # the CEO can see and approve it. This guard sits before the
+            # assigned-vs-unassigned split, so it holds whether or not the task
+            # carries an assignee.
+            if task.get("source") == SELF_HEAL_SOURCE and not task.get(
+                "confirmed_by_human"
+            ):
                 continue
             assigned_to = task.get("assigned_to")
             if assigned_to:
