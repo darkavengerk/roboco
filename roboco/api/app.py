@@ -56,11 +56,12 @@ from roboco.api.routes.v1 import flow_qa as flow_qa_module
 from roboco.api.routes.work_session import router as work_session_router
 from roboco.api.websocket import router as ws_router
 from roboco.config import settings
-from roboco.db.base import close_db, init_db
+from roboco.db.base import close_db, get_session_factory, init_db
 from roboco.logging import get_logger, setup_logging
 from roboco.services.extraction import ExtractionPipeline, ExtractionService
 from roboco.services.learning import get_learning_service
 from roboco.services.optimal import close_optimal_service, get_optimal_service
+from roboco.services.settings import apply_persisted_feature_flags
 from roboco.services.transcription import TranscriptionService
 
 # Setup logging before anything else
@@ -104,6 +105,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # additions like NotificationType.APPROVAL) reaches the running DB.
     await init_db()
     logger.info("Database initialized")
+
+    # Overlay panel-persisted feature-flag overrides onto the live config so the
+    # rest of startup (and the dispatch loops) read the panel's choices; unset
+    # flags keep their env/config default. Best-effort — a failure here must not
+    # block startup, the env defaults still apply.
+    try:
+        async with get_session_factory()() as _flags_db:
+            applied_flags = await apply_persisted_feature_flags(_flags_db)
+        if applied_flags:
+            logger.info("Applied persisted feature-flag overrides", flags=applied_flags)
+    except Exception as e:
+        logger.warning("Feature-flag overlay failed; using env defaults", error=str(e))
 
     # Initialize Phase 2 services
     _AppServices.transcription = TranscriptionService()

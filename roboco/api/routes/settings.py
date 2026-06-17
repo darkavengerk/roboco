@@ -8,8 +8,18 @@ and are read by the backend (e.g. the transcript-retention prune sweep) with a
 from fastapi import APIRouter, HTTPException, status
 
 from roboco.api.deps import DbSession
-from roboco.api.schemas.settings import SettingsResponse, SettingUpdate
-from roboco.services.settings import SettingValidationError, get_settings_service
+from roboco.api.schemas.settings import (
+    FeatureFlag,
+    FeatureFlagsResponse,
+    SettingsResponse,
+    SettingUpdate,
+)
+from roboco.services.settings import (
+    FEATURE_FLAGS,
+    SettingValidationError,
+    feature_flag_effective_values,
+    get_settings_service,
+)
 
 router = APIRouter()
 
@@ -18,6 +28,18 @@ router = APIRouter()
 async def list_settings(db: DbSession) -> SettingsResponse:
     """Return every stored runtime-editable setting."""
     return SettingsResponse(settings=await get_settings_service(db).all())
+
+
+@router.get("/feature-flags", response_model=FeatureFlagsResponse)
+async def get_feature_flags(db: DbSession) -> FeatureFlagsResponse:
+    """Effective feature-flag values (stored override, else the env default)."""
+    effective = await feature_flag_effective_values(db)
+    return FeatureFlagsResponse(
+        flags=[
+            FeatureFlag(key=key, label=label, enabled=effective.get(key, False))
+            for key, label in FEATURE_FLAGS
+        ]
+    )
 
 
 @router.put("/{key}", response_model=SettingsResponse)

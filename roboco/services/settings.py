@@ -34,10 +34,32 @@ def _validate_retention_days(value: str) -> None:
         raise SettingValidationError("transcript_retention_days must be >= 1")
 
 
+def _validate_bool(value: str) -> None:
+    if value.strip().lower() not in ("true", "false"):
+        raise SettingValidationError("value must be 'true' or 'false'")
+
+
+# Panel-tunable feature flags (master switches). The stored value overrides the
+# config/env default at startup via ``apply_persisted_feature_flags`` — i.e. a
+# toggle takes effect on the next restart, replacing hand-editing env. Each maps
+# to a ``roboco.config.Settings`` bool attribute of the same name.
+FEATURE_FLAGS: tuple[tuple[str, str], ...] = (
+    ("external_pr_enabled", "External-PR review"),
+    ("internal_pr_enabled", "Internal-PR safety reviewer"),
+    ("research_enabled", "Web research (Board + PM)"),
+    ("strategy_engine_enabled", "Strategy engine"),
+    ("provisioning_enabled", "Pitch auto-provisioning"),
+    ("rag_auto_update_enabled", "RAG auto-update"),
+    ("transcript_prune_enabled", "Transcript pruning"),
+)
+_FEATURE_FLAG_KEYS = tuple(key for key, _ in FEATURE_FLAGS)
+
+
 # Writable settings: key -> validator. Keys absent here are rejected on write so
 # the panel can only persist values the backend understands.
 _VALIDATORS = {
     "transcript_retention_days": _validate_retention_days,
+    **dict.fromkeys(_FEATURE_FLAG_KEYS, _validate_bool),
 }
 
 
@@ -69,6 +91,13 @@ class SettingsService(BaseService):
         except ValueError:
             return default
 
+    async def get_bool(self, key: str, default: bool) -> bool:
+        """Return ``key`` parsed as a bool ('true'/'false'), or ``default``."""
+        raw = await self.get(key)
+        if raw is None:
+            return default
+        return raw.strip().lower() == "true"
+
     async def set(self, key: str, value: str) -> None:
         """Validate then upsert ``key`` = ``value``. Caller commits."""
         validate_setting(key, value)
@@ -88,3 +117,40 @@ class SettingsService(BaseService):
 def get_settings_service(session: AsyncSession) -> SettingsService:
     """Construct a SettingsService bound to ``session``."""
     return SettingsService(session)
+
+
+async def feature_flag_effective_values(session: AsyncSession) -> dict[str, bool]:
+    """Effective value of each panel-tunable flag: stored override, else env default.
+
+    Backs the Settings panel's feature-flag card so it shows what's actually in
+    force (the env/config default unless the panel has persisted an override).
+    """
+    from roboco.config import settings as _settings
+
+    service = get_settings_service(session)
+    return {
+        key: await service.get_bool(key, bool(getattr(_settings, key, False)))
+        for key in _FEATURE_FLAG_KEYS
+    }
+
+
+async def apply_persisted_feature_flags(session: AsyncSession) -> list[str]:
+    """Overlay panel-persisted feature-flag overrides onto the live config.
+
+    Called once at startup, after the DB is ready: for each known flag with a
+    stored value, set the matching attribute on the ``roboco.config.settings``
+    singleton so the rest of the app reads the panel's choice. No per-consumer
+    re-routing — a toggle simply takes effect on the next restart. Returns the
+    keys that were overridden.
+    """
+    from roboco.config import settings as _settings
+
+    service = get_settings_service(session)
+    applied: list[str] = []
+    for key in _FEATURE_FLAG_KEYS:
+        raw = await service.get(key)
+        if raw is None:
+            continue
+        setattr(_settings, key, raw.strip().lower() == "true")
+        applied.append(key)
+    return applied

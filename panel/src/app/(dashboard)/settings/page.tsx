@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 import { API_URL, WS_URL } from "@/lib/constants";
 import { TranscriptRetentionCard } from "@/components/settings/transcript-retention-card";
+import { FeatureFlagsCard } from "@/components/settings/feature-flags-card";
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
@@ -240,6 +241,10 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Feature Flags — master switches for optional subsystems (full width;
+          persisted server-side, applied on next restart). */}
+      <FeatureFlagsCard />
 
       {/* Save Button */}
       <div className="flex justify-end">
