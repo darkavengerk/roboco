@@ -61,3 +61,39 @@ async def test_multiple_old_shas_still_rereviews_new() -> None:
     svc = _service(["external_pr_head=abc", "external_pr_head=def"])
     assert await svc.external_review_task_exists(uuid4(), 170, "ghi") is False
     assert await svc.external_review_task_exists(uuid4(), 170, "def") is True
+
+
+def _bind(svc: TaskService, name: str, value: object) -> None:
+    object.__setattr__(svc, name, value)
+
+
+@pytest.mark.asyncio
+async def test_list_awaiting_decision_excludes_dismissed() -> None:
+    pending = MagicMock(quick_context="external_pr_head=abc")
+    dismissed = MagicMock(quick_context="external_pr_head=def dismissed=1")
+    svc = _service([pending, dismissed])
+    out = await svc.list_external_pr_reviews_awaiting_decision()
+    assert out == [pending]
+
+
+@pytest.mark.asyncio
+async def test_dismiss_marks_and_is_idempotent() -> None:
+    task = MagicMock(source="external_pr", quick_context="external_pr_head=abc")
+    session = MagicMock()
+    session.flush = AsyncMock()
+    svc = TaskService(session)
+    _bind(svc, "get", AsyncMock(return_value=task))
+    await svc.dismiss_external_pr_review(uuid4())
+    assert "dismissed=1" in task.quick_context.split()
+    await svc.dismiss_external_pr_review(uuid4())  # idempotent
+    assert task.quick_context.split().count("dismissed=1") == 1
+
+
+@pytest.mark.asyncio
+async def test_dismiss_rejects_non_external_pr() -> None:
+    task = MagicMock(source="code")
+    session = MagicMock()
+    session.flush = AsyncMock()
+    svc = TaskService(session)
+    _bind(svc, "get", AsyncMock(return_value=task))
+    assert await svc.dismiss_external_pr_review(uuid4()) is None

@@ -161,6 +161,22 @@ class PRReviewerMixin(_Base):
                 logger.exception(
                     "post_pr_review GitHub post failed", task_id=str(task_id)
                 )
+        # Surface the review to the CEO as an actionable decision (supersede /
+        # dismiss). The reviewer is read-only with no notify verb, so the server
+        # emits it. Best-effort — a notify failure must not fail the review.
+        if pr_number:
+            try:
+                from roboco.services.notification import NotificationService
+
+                await NotificationService().send_external_pr_reviewed_notification(
+                    task_id=str(task_id),
+                    pr_number=pr_number,
+                    pr_url=str(getattr(t, "pr_url", "") or ""),
+                )
+            except Exception:
+                logger.exception(
+                    "post_pr_review CEO notify failed", task_id=str(task_id)
+                )
         return Envelope.ok(
             status=str(t.status),
             task_id=str(task_id),

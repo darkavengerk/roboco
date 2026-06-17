@@ -720,6 +720,42 @@ class TaskService(BaseService):
         await self.session.flush()
         return task
 
+    async def list_external_pr_reviews_awaiting_decision(self) -> list[TaskTable]:
+        """Completed external-PR reviews still awaiting the CEO's decision.
+
+        A review is awaiting decision once the reviewer has posted (status
+        COMPLETED) and the CEO has neither superseded it (supersede sets
+        ``confirmed_by_human=True``) nor dismissed it (a ``dismissed=1`` marker
+        in quick_context). This backs the panel's PR-review decision queue.
+        """
+        result = await self.session.execute(
+            select(TaskTable).where(
+                TaskTable.source == "external_pr",
+                TaskTable.status == TaskStatus.COMPLETED,
+                TaskTable.confirmed_by_human.is_(False),
+            )
+        )
+        return [
+            t
+            for t in result.scalars().all()
+            if "dismissed=1" not in (t.quick_context or "").split()
+        ]
+
+    async def dismiss_external_pr_review(self, task_id: UUID) -> TaskTable | None:
+        """CEO declines to act on a reviewed external PR — drop it from the queue.
+
+        Appends a ``dismissed=1`` marker to quick_context so the review leaves
+        ``list_external_pr_reviews_awaiting_decision``. Returns None if the task
+        is missing or is not an external-PR review.
+        """
+        task = await self.get(task_id)
+        if task is None or getattr(task, "source", "") != "external_pr":
+            return None
+        if "dismissed=1" not in (task.quick_context or "").split():
+            task.quick_context = f"{task.quick_context or ''} dismissed=1".strip()
+        await self.session.flush()
+        return task
+
     async def pr_review_claim(
         self, reviewer_agent_id: UUID, task_id: UUID
     ) -> TaskTable | None:
