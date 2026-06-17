@@ -323,7 +323,12 @@ def _resolve_project_slug_from_git_context(
 # SPAWN MANIFEST — per-developer tool manifest mounting (Phase 1)
 # =============================================================================
 
-# Phase 4: every role gets a gateway manifest. The legacy briefing path is gone.
+# Phase 4: every spawned role gets a gateway manifest. The legacy briefing path
+# is gone. A role omitted here gets NO manifest and ROBOCO_GATEWAY_ENABLED=false,
+# i.e. none of its flow verbs are pre-registered — so it can never claim its work
+# and the dispatcher respawns it on the same task forever. The only roles that
+# may be absent are the human-only ones (prompter, secretary) that the
+# orchestrator never spawns as delivery agents.
 GATEWAY_ENABLED_ROLES: frozenset[str] = frozenset(
     {
         "developer",
@@ -334,6 +339,7 @@ GATEWAY_ENABLED_ROLES: frozenset[str] = frozenset(
         "product_owner",
         "head_marketing",
         "auditor",
+        "pr_reviewer",
     }
 )
 
