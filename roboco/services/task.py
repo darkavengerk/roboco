@@ -628,22 +628,39 @@ class TaskService(BaseService):
         return task
 
     async def external_review_task_exists(
-        self, project_id: UUID, pr_number: int
+        self, project_id: UUID, pr_number: int, head_sha: str | None = None
     ) -> bool:
-        """True if a review task already exists for this (project, external PR).
+        """True if this (project, external PR) at this head commit is already reviewed.
 
-        The de-dupe key for inbound external-PR ingestion: one review task per
-        ``(project_id, source='external_pr', pr_number)`` so re-polling an open
-        PR never creates a duplicate.
+        De-dupe key for inbound external-PR ingestion. Re-review is driven by the
+        PR's head commit: a review task records the SHA it covered as an
+        ``external_pr_head=<sha>`` marker in ``quick_context``. So:
+
+        - no review task for this PR yet -> False (ingest the first review);
+        - a task already covers THIS ``head_sha`` -> True (skip — nothing changed);
+        - a legacy/markerless task exists, or ``head_sha`` is unknown -> True
+          (can't prove it changed, so don't re-review / don't spam);
+        - tasks exist but all cover OTHER SHAs -> False (the PR got new commits —
+          open a fresh review for the change).
         """
         result = await self.session.execute(
-            select(TaskTable.id).where(
+            select(TaskTable.quick_context).where(
                 TaskTable.project_id == project_id,
                 TaskTable.source == "external_pr",
                 TaskTable.pr_number == pr_number,
             )
         )
-        return result.first() is not None
+        contexts = result.scalars().all()
+        if not contexts:
+            return False
+        if not head_sha:
+            return True
+        marker = f"external_pr_head={head_sha}"
+        for qc in contexts:
+            text = qc or ""
+            if marker in text or "external_pr_head=" not in text:
+                return True
+        return False
 
     async def ingest_external_pr(
         self,
@@ -656,7 +673,9 @@ class TaskService(BaseService):
         """Create one review task for a newly-seen external PR; ``None`` if it exists.
 
         ``pr`` is a normalized record from ``GitService.list_open_prs`` (number,
-        url, title). De-duped on ``(project_id, source='external_pr', pr_number)``.
+        url, title, head_sha). De-duped per ``(project_id, pr_number, head_sha)``
+        — re-polling an unchanged PR is skipped, but new commits (a new head SHA)
+        open a fresh review (see ``external_review_task_exists``).
         The task is CODE-typed with ``source='external_pr'`` and
         ``confirmed_by_human=False`` — a deliberate gate: no agent fetches, checks
         out, or runs the contributor's code until a human confirms the PR. Caller
@@ -665,7 +684,8 @@ class TaskService(BaseService):
         pr_number = int(pr["number"])
         pr_url = str(pr.get("url") or "")
         pr_title = str(pr.get("title") or "")
-        if await self.external_review_task_exists(project_id, pr_number):
+        head_sha = str(pr.get("head_sha") or "")
+        if await self.external_review_task_exists(project_id, pr_number, head_sha):
             return None
         title = f"Review external PR #{pr_number}: {pr_title}".strip()
         req = TaskCreateRequest(
@@ -693,6 +713,10 @@ class TaskService(BaseService):
         task = await self.create(req)
         task.pr_number = pr_number
         task.pr_url = pr_url
+        # Record the reviewed head commit so a later push (new SHA) re-reviews,
+        # while an unchanged PR is skipped (see external_review_task_exists).
+        if head_sha:
+            task.quick_context = f"external_pr_head={head_sha}"
         await self.session.flush()
         return task
 

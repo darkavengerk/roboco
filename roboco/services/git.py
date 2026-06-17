@@ -1414,7 +1414,8 @@ class GitService(BaseService):
         The inbound counterpart to the org's outbound PR calls: lists ALL open
         PRs (no ``head=`` filter), so it sees external/fork contributions the org
         did not create. Each record carries ``number``, ``url``, ``title``,
-        ``head_ref``, ``is_fork`` (head repo differs from base repo),
+        ``head_ref``, ``head_sha`` (the head commit — the change signal for
+        re-review), ``is_fork`` (head repo differs from base repo),
         ``user_login`` and ``author_association`` so the caller can classify
         trust. Returns ``[]`` on a missing token, unparseable remote, or any
         GitHub error — it never raises into the poll loop.
@@ -1467,6 +1468,7 @@ class GitService(BaseService):
                     "url": pr.get("html_url") or "",
                     "title": pr.get("title") or "",
                     "head_ref": head.get("ref"),
+                    "head_sha": head.get("sha"),
                     "is_fork": bool(head_full and head_full != base_full),
                     "user_login": (pr.get("user") or {}).get("login"),
                     "author_association": pr.get("author_association"),
