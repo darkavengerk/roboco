@@ -66,7 +66,7 @@ One full loop, put simply:
 
 **— Full circle —**
 
-**[See the full walkthrough, with screenshots →](docs/how-to.md)**
+**[See the full walkthrough, with screenshots →](docs/how-to/README.md)**
 
 **[Or watch the full panel walkthrough (video) →](docs/videos/panel-full-walkthrough.mp4)**
 
@@ -93,7 +93,7 @@ roboco/
 ├── agents/
 │   └── prompts/                 # Agent system prompts (roles, teams, identities)
 ├── docs/
-│   ├── how-to.md               # Visual walkthrough of the workflow
+│   ├── how-to/                 # Visual walkthrough — 5-chapter guide (start at README.md)
 │   └── rag/                     # Agent knowledge base (indexed into RAG)
 ├── alembic/                     # Database migrations
 ├── CLAUDE.md                    # Claude Code guidance
