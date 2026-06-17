@@ -245,7 +245,7 @@ export function SecretaryTab() {
         </CardHeader>
         <CardContent className="flex flex-1 flex-col gap-4">
           <ChatMessages messages={messages} streaming={streaming} />
-          <div className="flex items-stretch gap-2">
+          <div className="flex items-end gap-2">
             <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -255,6 +255,7 @@ export function SecretaryTab() {
                   : "Opening message (optional)…"
               }
               rows={2}
+              className="max-h-40 min-h-[2.75rem] flex-1 resize-none"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -267,11 +268,18 @@ export function SecretaryTab() {
               <Button
                 onClick={() => void handleSend()}
                 disabled={!input.trim()}
+                size="icon"
+                className="h-11 w-11 shrink-0"
+                aria-label="Send message"
               >
                 <Send className="h-4 w-4" />
               </Button>
             ) : (
-              <Button onClick={() => void handleStart()} disabled={starting}>
+              <Button
+                onClick={() => void handleStart()}
+                disabled={starting}
+                className="h-11 shrink-0 px-6"
+              >
                 {starting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
