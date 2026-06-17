@@ -353,6 +353,61 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Production self-healing ("engine 4") — DORMANT by default
+    # ==========================================================================
+    # RoboCo heals ITSELF. A closed loop that watches RoboCo's OWN repo CI (the
+    # single project named by self_heal_project_slug — NOT other/client repos),
+    # detects a regression (a failing CI run on its default branch), notifies the
+    # CEO, and — behind a second opt-in — opens a PENDING fix task into RoboCo's
+    # own delivery lifecycle and STOPS. It never starts, merges, or deploys; every
+    # downstream step stays a human decision. Default OFF: the loop never runs and
+    # no GitHub call is made.
+    self_heal_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the self-healing loop (detect + notify the CEO). "
+            "OFF by default; when off the background loop does not run at all and "
+            "no CI telemetry is fetched."
+        ),
+    )
+    self_heal_project_slug: str = Field(
+        default="",
+        description=(
+            "The registered project that IS RoboCo itself — the self-heal loop "
+            "watches ONLY this repo's CI and opens fix tasks ONLY into it (RoboCo "
+            "healing itself, not other repos). Empty = no target; the loop no-ops "
+            "even when enabled."
+        ),
+    )
+    self_heal_originate_enabled: bool = Field(
+        default=False,
+        description=(
+            "Second opt-in: when on (and self_heal_enabled), a detected regression "
+            "also opens a PENDING fix task into the regressed project's lifecycle. "
+            "OFF by default — the loop is notify-only. The loop NEVER starts, "
+            "approves, merges, or deploys the task; it stops at PENDING for the CEO."
+        ),
+    )
+    self_heal_interval_seconds: int = Field(
+        default=1800,
+        ge=60,
+        description="Seconds between self-healing telemetry assessment passes.",
+    )
+    self_heal_max_open_tasks: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Rolling cap on concurrently-open self-heal tasks across all repos; "
+            "the loop originates nothing more while this many are still open."
+        ),
+    )
+    self_heal_max_per_cycle: int = Field(
+        default=1,
+        ge=1,
+        description="Max self-heal fix tasks the loop may originate in one cycle.",
+    )
+
+    # ==========================================================================
     # Workspaces (Multi-Agent Git)
     # ==========================================================================
     workspaces_root: str = Field(

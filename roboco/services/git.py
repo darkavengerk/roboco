@@ -1641,6 +1641,82 @@ class GitService(BaseService):
             "author_association": pr.get("author_association"),
         }
 
+    async def get_latest_ci_conclusion(
+        self, project_slug: str
+    ) -> dict[str, Any] | None:
+        """Latest completed CI (GitHub Actions) run on a project's default branch.
+
+        The inbound telemetry signal for self-healing: the most recent COMPLETED
+        workflow run on the project's default branch, normalized to
+        ``conclusion`` (``success`` / ``failure`` / ``timed_out`` / ...),
+        ``head_sha``, ``run_url``, ``run_name``, ``branch`` and ``completed_at``.
+        Repo-agnostic — resolves owner/repo and the git token PER PROJECT, so it
+        works on any registered repo, never a hardcoded one. Returns ``None`` on a
+        missing token, unparseable remote, GitHub error, or a repo with no Actions
+        runs (a repo that doesn't use GitHub Actions yields no signal, not a false
+        one). It never raises into the poll loop.
+        """
+        project = await get_project_service(self.session).get_by_slug(project_slug)
+        if project is None or not project.git_url:
+            return None
+        try:
+            owner, repo = self._parse_git_url(project.git_url)
+        except GitError:
+            return None
+        git_token = await self._token_for_project(project_slug)
+        if not git_token:
+            return None
+        branch = project.default_branch or "main"
+        run = await self._fetch_latest_ci_run(
+            project_slug, owner, repo, branch, git_token
+        )
+        if run is None:
+            return None
+        return {
+            "conclusion": run.get("conclusion"),
+            "head_sha": run.get("head_sha"),
+            "run_url": run.get("html_url") or "",
+            "run_name": run.get("name") or "",
+            "branch": branch,
+            "completed_at": run.get("updated_at"),
+        }
+
+    async def _fetch_latest_ci_run(
+        self, project_slug: str, owner: str, repo: str, branch: str, git_token: str
+    ) -> dict[str, Any] | None:
+        """GET the most recent completed Actions run on ``branch``; None on error."""
+        api_base = settings.github_api_base_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=_default_git_timeout()) as client:
+                resp = await client.get(
+                    f"{api_base}/repos/{owner}/{repo}/actions/runs",
+                    headers={
+                        "Authorization": f"Bearer {git_token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                    params={"branch": branch, "status": "completed", "per_page": 1},
+                )
+        except httpx.HTTPError as e:
+            self.log.warning(
+                "get_latest_ci_conclusion request failed",
+                project=project_slug,
+                error=str(e),
+            )
+            return None
+        if not resp.is_success:
+            self.log.warning(
+                "get_latest_ci_conclusion non-2xx",
+                project=project_slug,
+                status=resp.status_code,
+            )
+            return None
+        data = resp.json()
+        runs = data.get("workflow_runs") if isinstance(data, dict) else None
+        if not runs:
+            return None
+        return cast("dict[str, Any]", runs[0])
+
     async def _post_pr(
         self,
         owner: str,
