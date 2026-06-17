@@ -302,7 +302,7 @@ services:
       # unscoped "latest run" would be unreliable).
       ROBOCO_SELF_HEAL_ENABLED: ${ROBOCO_SELF_HEAL_ENABLED:-false}
       ROBOCO_SELF_HEAL_ORIGINATE_ENABLED: ${ROBOCO_SELF_HEAL_ORIGINATE_ENABLED:-false}
-      ROBOCO_SELF_HEAL_PROJECT_SLUG: ${ROBOCO_SELF_HEAL_PROJECT_SLUG:-}
+      ROBOCO_SELF_HEAL_PROJECT_SLUG: ${ROBOCO_SELF_HEAL_PROJECT_SLUG:-roboco-api}
       ROBOCO_SELF_HEAL_CI_WORKFLOW: ${ROBOCO_SELF_HEAL_CI_WORKFLOW:-ci.yml}
     volumes:
       # Docker socket - allows spawning agent containers
