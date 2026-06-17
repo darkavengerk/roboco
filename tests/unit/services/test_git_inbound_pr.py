@@ -158,3 +158,86 @@ async def test_get_pr_diff_empty_on_non_2xx() -> None:
         patch("roboco.services.git.httpx.AsyncClient", return_value=client),
     ):
         assert await svc.get_pr_diff("roboco", _PR) == ""
+
+
+# ---------------------------------------------------------------------------
+# get_latest_ci_conclusion — the self-heal CI telemetry signal
+# ---------------------------------------------------------------------------
+
+
+def _patch_project_ci() -> Any:
+    fake = MagicMock()
+    fake.get_by_slug = AsyncMock(
+        return_value=MagicMock(
+            git_url="https://github.com/acme/repo.git", default_branch="master"
+        )
+    )
+    return patch("roboco.services.git.get_project_service", return_value=fake)
+
+
+def _run(conclusion: str) -> dict[str, Any]:
+    return {
+        "conclusion": conclusion,
+        "head_sha": "abc123",
+        "html_url": "https://github.com/acme/repo/actions/runs/99",
+        "name": "CI",
+        "updated_at": "2026-06-17T00:00:00Z",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_latest_ci_conclusion_normalizes_and_requests_correctly() -> None:
+    svc = _service()
+    client = _client(_resp(200, json_payload={"workflow_runs": [_run("failure")]}))
+    with (
+        _patch_project_ci(),
+        patch("roboco.services.git.httpx.AsyncClient", return_value=client),
+    ):
+        out = await svc.get_latest_ci_conclusion("roboco")
+    assert out == {
+        "conclusion": "failure",
+        "head_sha": "abc123",
+        "run_url": "https://github.com/acme/repo/actions/runs/99",
+        "run_name": "CI",
+        "branch": "master",
+        "completed_at": "2026-06-17T00:00:00Z",
+    }
+    call = client.get.await_args
+    assert call.args[0].endswith("/repos/acme/repo/actions/runs")
+    assert call.kwargs["params"] == {
+        "branch": "master",
+        "status": "completed",
+        "per_page": 1,
+    }
+    assert call.kwargs["headers"]["Authorization"] == "Bearer tok"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_ci_conclusion_none_on_missing_token() -> None:
+    svc = _service()
+    object.__setattr__(svc, "_token_for_project", AsyncMock(return_value=None))
+    with _patch_project_ci():
+        assert await svc.get_latest_ci_conclusion("roboco") is None
+
+
+@pytest.mark.asyncio
+async def test_get_latest_ci_conclusion_none_on_github_error() -> None:
+    svc = _service()
+    client = _client(_resp(403, text="forbidden"))
+    with (
+        _patch_project_ci(),
+        patch("roboco.services.git.httpx.AsyncClient", return_value=client),
+    ):
+        assert await svc.get_latest_ci_conclusion("roboco") is None
+
+
+@pytest.mark.asyncio
+async def test_get_latest_ci_conclusion_none_when_no_runs() -> None:
+    # A repo with no Actions runs (e.g. doesn't use GitHub Actions) → no signal.
+    svc = _service()
+    client = _client(_resp(200, json_payload={"workflow_runs": []}))
+    with (
+        _patch_project_ci(),
+        patch("roboco.services.git.httpx.AsyncClient", return_value=client),
+    ):
+        assert await svc.get_latest_ci_conclusion("roboco") is None
