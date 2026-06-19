@@ -3056,7 +3056,7 @@ requires-dist = [
     { name = "anthropic" },
     { name = "asyncpg" },
     { name = "bandit", marker = "extra == 'dev'" },
-    { name = "claude-agent-sdk", specifier = ">=0.2.101" },
+    { name = "claude-agent-sdk", specifier = ">=0.2.105" },
     { name = "cryptography" },
     { name = "deptry", marker = "extra == 'dev'" },
     { name = "factory-boy", marker = "extra == 'dev'" },
