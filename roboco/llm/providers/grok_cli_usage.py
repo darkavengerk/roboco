@@ -28,6 +28,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -35,8 +36,10 @@ from urllib.parse import quote
 from roboco.billing.pricing import calculate_cost
 
 # Where the entrypoint writes the captured usage for the orchestrator to read.
+# Defaults under the system temp dir (not a hardcoded /tmp literal).
 USAGE_OUT_PATH = Path(
-    os.environ.get("ROBOCO_GROK_USAGE_FILE", "/tmp/roboco-grok-usage.json")
+    os.environ.get("ROBOCO_GROK_USAGE_FILE")
+    or Path(tempfile.gettempdir()) / "roboco-grok-usage.json"
 )
 
 

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,12 @@ BASH_GUARD_HOOK = os.environ.get(
     "ROBOCO_BASH_GUARD_HOOK", "/app/scripts/bash-guard-hook.sh"
 )
 # The entrypoint reads the computed flags (one token per line) from this file.
-GROK_ARGS_PATH = Path(os.environ.get("ROBOCO_GROK_ARGS_FILE", "/tmp/roboco-grok-args"))
+# Defaults under the system temp dir (not a hardcoded /tmp literal) — the
+# entrypoint reads the same ROBOCO_GROK_ARGS_FILE / tmp default.
+GROK_ARGS_PATH = Path(
+    os.environ.get("ROBOCO_GROK_ARGS_FILE")
+    or Path(tempfile.gettempdir()) / "roboco-grok-args"
+)
 
 # Hard ceiling on agentic turns (loop guard). Operator-tunable.
 _DEFAULT_MAX_TURNS = 200
