@@ -18,6 +18,8 @@ Contributions require a signed **Contributor License Agreement** (`CLA.md`), aut
 CEO (Renzo - Human)
     |
     +-- Intake (on-demand interviewer: chats only with the CEO to draft a task)
+    +-- Secretary (on-demand chief-of-staff: reads company state, runs gated CEO directives)
+    +-- PR Reviewer (read-only: reviews inbound external/fork + internal PRs, posts on the PR itself)
     |
     +-- Board (3 agents)
          +-- Product Owner
@@ -77,7 +79,7 @@ pnpm test
 | RAG Engine | in-house (asyncpg + pgvector, hybrid retrieval) |
 | Cache/Queue | Redis |
 | Container Runtime | Docker + Docker Compose |
-| Cloud LLM | Claude API (claude-opus-4-6) |
+| Cloud LLM | Claude API (claude-opus-4-6) + xAI Grok (official `grok` CLI, SuperGrok subscription) |
 | Local LLM | Ollama (glm-5:cloud for RAG/hybrid retrieval) |
 | Embeddings | qwen3-embedding:0.6b (1024 dim) |
 | Frontend | Next.js 16 + TypeScript + Tailwind + Radix UI (in `panel/`) |
@@ -352,6 +354,20 @@ Every verb returns a standardized **Envelope**:
 - error: `{error, message, remediate, missing}`
 
 The `next` field tells the agent what to call next; the `remediate` field on errors tells them exactly how to fix and retry. Agents should not guess state — trust the response.
+
+## Agent Providers
+
+Agent backends are pluggable. `roboco/llm/providers/` defines an `AgentProvider` lifecycle ABC (`base.py`) and a `ProviderRegistry` keyed by `ModelProvider` (`registry.py`), with `ClaudeCodeProvider` (default) and `GrokCliProvider`. The orchestrator resolves a provider at spawn from the agent's `ModelProvider`; when no dedicated provider is registered it falls back to the built-in Claude Code spawn. `ModelProvider` (`roboco/models/base.py`) is `ANTHROPIC` (default), `GROK`, `LOCAL`, `OLLAMA_CLOUD`, `OPENAI` (reserved). The seam is additive: only `GROK` routes through `GrokCliProvider`; Anthropic / Ollama Cloud / self-hosted spawns are unchanged, and every provider gets the same MCP gateway + tool-manifest wiring by construction.
+
+**Grok runtime.** `GROK` agents run xAI's official `grok` CLI (model `grok-build`) authenticated by a **SuperGrok subscription**, not a metered API key — so a Grok workforce can't stall mid-task on out-of-credits. The host `~/.grok/auth.json` is mounted **read-only** into each agent (`GrokCliProvider._append_grok_auth_mount`; `ROBOCO_HOST_GROK_DIR` is the host mount source, set up once with `grok login`). It reaches parity with the Claude path by construction: same MCP gateway + manifest, per-role tool-removal and git-operation deny rules, a prompt-injection guard on the task prompt, headless tool auto-approval, and per-agent token/cost capture from the grok session store. It covers both one-shot delivery roles and the interactive Intake (Prompter) and Secretary chats (per-turn `grok -p` with session resume).
+
+**Token auto-refresh.** The grok access token has a fixed ~6h server-set TTL and the CLI cannot refresh it headlessly — on an expired token it hangs forever at an interactive login prompt. The orchestrator mints a fresh token from the offline-access refresh token (xAI's OIDC `refresh_token` grant) before expiry and rewrites the shared `auth.json` in place (`roboco/llm/providers/grok_auth.py` `refresh_if_stale`, run once per dispatch tick; the orchestrator's `~/.grok` mount is read-write so it can rewrite it). As a backstop the agent entrypoint runs `python -m roboco.llm.providers.grok_auth --check` and refuses to start (exit 78) on a missing/expired token instead of hanging.
+
+## Self-Healing & Feature Flags
+
+**Self-healing CI loop (default-off).** RoboCo can watch its own repository's CI (a single named workflow) and, on a detected regression, open a fix task that is held out of dispatch until the CEO approves it (it terminates at `awaiting_ceo_approval`), then dispatch it through the normal delivery flow. It is dormant by default and armed by `ROBOCO_SELF_HEAL_ENABLED` plus a second opt-in `ROBOCO_SELF_HEAL_ORIGINATE_ENABLED`; origination is bounded by `ROBOCO_SELF_HEAL_MAX_OPEN_TASKS` / `_MAX_PER_CYCLE` so it can't flood the backlog. It never auto-merges or self-deploys (`roboco/services/self_heal_engine.py`).
+
+**Feature flags / company-in-a-box.** Env-gated, default-off subsystems toggle from the panel's Settings → Feature Flags card (`panel/src/components/settings/feature-flags-card.tsx`) instead of hand-editing env: web research (`ROBOCO_RESEARCH_ENABLED`), the strategy engine (`ROBOCO_STRATEGY_ENGINE_ENABLED`), pitch provisioning (`ROBOCO_PROVISIONING_*`), external / internal PR review, and the self-heal flags above. A toggle persists in the settings store and takes effect on the next backend restart; an unset flag falls back to its environment / config default.
 
 ## Services
 

@@ -38,6 +38,8 @@ RoboCo implements a structured organizational hierarchy with formal communicatio
 CEO (You, the human)
     │
     ├── Intake (on-demand interviewer: chats only with you to draft a task)
+    ├── Secretary (on-demand chief-of-staff: reads company state, runs gated directives)
+    ├── PR Reviewer (read-only: reviews inbound external/fork + internal PRs)
     │
     └── Board (3 agents)
          ├── Product Owner
@@ -50,6 +52,8 @@ CEO (You, the human)
                    ├── Frontend Cell (5 agents: 2 Devs, 1 QA, 1 PM, 1 Documenter)
                    └── UX/UI Cell (5 agents: 2 Devs, 1 QA, 1 PM, 1 Documenter)
 ```
+
+The 22 agents = Intake + Secretary + PR Reviewer + the Board (3) + Main PM + the three 5-agent cells (15). Agents run on Anthropic Claude by default, or on xAI Grok (the official `grok` CLI on a SuperGrok subscription) — see the provider note under Configuration.
 
 ## How it works
 
@@ -104,6 +108,8 @@ roboco/
 ## Running RoboCo
 
 You need **Docker** + **Docker Compose** and a Claude Code auth directory on the host (`~/.claude`, mounted into the orchestrator so agents can reach the model). Copy `.env.example` to `.env` and set at least `ROBOCO_ENCRYPTION_KEY` and `ROBOCO_AGENT_AUTH_SECRET` (that file shows how to generate each). However you start it, the whole company is reachable at one origin: **http://localhost:3000**.
+
+**Optional — run agents on xAI Grok instead of Claude.** RoboCo can spawn agents on xAI's official `grok` CLI authenticated by a SuperGrok subscription (no metered API key). Run `grok login` once on the host and point `ROBOCO_HOST_GROK_DIR` at the resulting `~/.grok` so it mounts into Grok agents; the orchestrator keeps the ~6h token refreshed for you. See the Grok block in `.env.example` (`ROBOCO_HOST_GROK_DIR`, `ROBOCO_GROK_AGENT_IMAGE`, `ROBOCO_GROK_CLI_MODEL`, `ROBOCO_GROK_REASONING_EFFORT`).
 
 ### Option 1 — Run the pre-built images (quickest)
 
@@ -260,7 +266,7 @@ uv run mypy roboco/
 | RAG Engine | in-house (asyncpg + pgvector, hybrid retrieval) |
 | Embeddings | qwen3-embedding:0.6b (Ollama) |
 | Local LLM | Ollama (glm-5:cloud) |
-| Cloud LLM | Claude API (Anthropic) |
+| Cloud LLM | Claude API (Anthropic) + xAI Grok (official `grok` CLI, SuperGrok subscription) |
 | Package Manager | uv |
 
 ## Status
@@ -277,6 +283,10 @@ uv run mypy roboco/
 - [x] RAG/Knowledge base (in-house pgvector engine)
 - [x] Agent orchestrator
 - [x] CEO approval workflow
+- [x] Pluggable agent providers (Claude Code + xAI Grok on the official `grok` CLI)
+- [x] Inbound PR review (read-only PR-reviewer + CEO supersede/dismiss queue)
+- [x] Self-healing CI loop for RoboCo's own repo (default-off, CEO-gated)
+- [x] Business Goals tab with a live Company Scorecard (delivery, spend-vs-budget, lead time)
 
 **In Progress**
 - [x] Frontend panel (vendored under `panel/`, served through nginx on :3000)
