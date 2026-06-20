@@ -1,9 +1,11 @@
 """Structured content columns + quick_context machine-marker split.
 
-Adds three nullable columns to ``tasks``:
+Adds four nullable columns to ``tasks``:
 
 - ``pr_reviewer_notes`` (TEXT) — the PR reviewer's own rendered note slot, so a
   review no longer overwrites ``qa_notes`` / ``dev_notes``.
+- ``doc_notes`` (TEXT) — the documenter's own rendered note slot (doc content
+  used to leak into the human ``quick_context`` blob).
 - ``notes_structured`` (JSON) — the typed source of truth for every role's
   structured note (the TEXT note columns become a derived mirror).
 - ``orchestration_markers`` (JSON) — the machine markers that used to be packed
@@ -102,6 +104,7 @@ def _parse_quick_context(blob: str | None) -> tuple[dict, str | None]:
 
 def upgrade() -> None:
     op.add_column("tasks", sa.Column("pr_reviewer_notes", sa.Text(), nullable=True))
+    op.add_column("tasks", sa.Column("doc_notes", sa.Text(), nullable=True))
     op.add_column(
         "tasks", sa.Column("notes_structured", postgresql.JSON(), nullable=True)
     )
@@ -141,4 +144,5 @@ def downgrade() -> None:
     # Lossy by design: markers are not re-merged back into quick_context.
     op.drop_column("tasks", "orchestration_markers")
     op.drop_column("tasks", "notes_structured")
+    op.drop_column("tasks", "doc_notes")
     op.drop_column("tasks", "pr_reviewer_notes")

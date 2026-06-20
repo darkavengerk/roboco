@@ -345,6 +345,7 @@ class TaskTable(Base):
     # quick_context (never human-facing). pr_reviewer_notes is the reviewer's
     # own slot so a review no longer overwrites qa_notes / dev_notes.
     pr_reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    doc_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes_structured: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     orchestration_markers: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, nullable=True
