@@ -3,6 +3,8 @@
 import { Suspense, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useTasks } from "@/hooks/use-tasks";
+import { useProjects } from "@/hooks/use-projects";
+import { useProducts } from "@/hooks/use-products";
 import { TaskStatus, Team, TaskType } from "@/types";
 import { OfflineState } from "@/components/ui/offline-state";
 import { CreateTaskDialog, TaskFilters, TaskTable, SortField, SortDirection } from "@/components/tasks";
@@ -30,6 +32,16 @@ function TasksPageContent() {
   const taskTypeFilter = useMemo(
     () => (taskTypeParam?.split(",").filter(Boolean) as TaskType[]) || [],
     [taskTypeParam]
+  );
+  const projectParam = searchParams.get("project");
+  const projectFilter = useMemo(
+    () => projectParam?.split(",").filter(Boolean) || [],
+    [projectParam]
+  );
+  const productParam = searchParams.get("product");
+  const productFilter = useMemo(
+    () => productParam?.split(",").filter(Boolean) || [],
+    [productParam]
   );
 
   // Table state from URL
@@ -73,6 +85,14 @@ function TasksPageContent() {
     updateParams({ type: value.length > 0 ? value.join(",") : null });
   }, [updateParams]);
 
+  const handleProjectChange = useCallback((value: string[]) => {
+    updateParams({ project: value.length > 0 ? value.join(",") : null });
+  }, [updateParams]);
+
+  const handleProductChange = useCallback((value: string[]) => {
+    updateParams({ product: value.length > 0 ? value.join(",") : null });
+  }, [updateParams]);
+
   // Table state handlers
   const handleSortChange = useCallback((field: SortField, direction: SortDirection | null) => {
     if (direction === null) {
@@ -101,6 +121,26 @@ function TasksPageContent() {
   // Fetch all tasks and filter client-side for multi-select
   const { data: tasks, isLoading, error, refetch } = useTasks();
 
+  // Projects + products: power the Project/Product filter options + name display.
+  const { data: projects } = useProjects();
+  const { data: products } = useProducts();
+  const projectNames = useMemo(
+    () => Object.fromEntries((projects ?? []).map((p) => [p.id, p.name])),
+    [projects]
+  );
+  const productNames = useMemo(
+    () => Object.fromEntries((products ?? []).map((p) => [p.id, p.name])),
+    [products]
+  );
+  const projectOptions = useMemo(
+    () => (projects ?? []).map((p) => ({ value: p.id, label: p.name })),
+    [projects]
+  );
+  const productOptions = useMemo(
+    () => (products ?? []).map((p) => ({ value: p.id, label: p.name })),
+    [products]
+  );
+
   // Filter tasks based on multi-select filters
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
@@ -127,9 +167,19 @@ function TasksPageContent() {
         return false;
       }
 
+      // Project filter (a task with no project_id is excluded when filtering by project)
+      if (projectFilter.length > 0 && (!task.project_id || !projectFilter.includes(task.project_id))) {
+        return false;
+      }
+
+      // Product filter (a task with no product_id is excluded when filtering by product)
+      if (productFilter.length > 0 && (!task.product_id || !productFilter.includes(task.product_id))) {
+        return false;
+      }
+
       return true;
     });
-  }, [tasks, searchQuery, statusFilter, teamFilter, taskTypeFilter]);
+  }, [tasks, searchQuery, statusFilter, teamFilter, taskTypeFilter, projectFilter, productFilter]);
 
   // Check if it's a connection error (backend not running)
   const isOffline = error && (
@@ -168,6 +218,12 @@ function TasksPageContent() {
           onTeamChange={handleTeamChange}
           taskTypeFilter={taskTypeFilter}
           onTaskTypeChange={handleTaskTypeChange}
+          projectFilter={projectFilter}
+          onProjectChange={handleProjectChange}
+          projectOptions={projectOptions}
+          productFilter={productFilter}
+          onProductChange={handleProductChange}
+          productOptions={productOptions}
         />
       </div>
 
@@ -182,6 +238,8 @@ function TasksPageContent() {
         <TaskTable
           tasks={filteredTasks}
           isLoading={isLoading}
+          projectNames={projectNames}
+          productNames={productNames}
           sortField={sortField}
           sortDirection={sortDir}
           onSortChange={handleSortChange}

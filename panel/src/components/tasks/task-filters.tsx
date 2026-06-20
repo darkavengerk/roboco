@@ -23,6 +23,13 @@ interface TaskFiltersProps {
   // Optional new filters
   taskTypeFilter?: TaskType[];
   onTaskTypeChange?: (value: TaskType[]) => void;
+  // Optional project / product filters (dynamic options from the API)
+  projectFilter?: string[];
+  onProjectChange?: (value: string[]) => void;
+  projectOptions?: { value: string; label: string }[];
+  productFilter?: string[];
+  onProductChange?: (value: string[]) => void;
+  productOptions?: { value: string; label: string }[];
 }
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -70,6 +77,12 @@ export function TaskFilters({
   onTeamChange,
   taskTypeFilter = [],
   onTaskTypeChange,
+  projectFilter = [],
+  onProjectChange,
+  projectOptions = [],
+  productFilter = [],
+  onProductChange,
+  productOptions = [],
 }: TaskFiltersProps) {
   const toggleStatus = (status: TaskStatus) => {
     if (statusFilter.includes(status)) {
@@ -96,9 +109,33 @@ export function TaskFilters({
     }
   };
 
+  const toggleProject = (id: string) => {
+    if (!onProjectChange) return;
+    onProjectChange(
+      projectFilter.includes(id)
+        ? projectFilter.filter((p) => p !== id)
+        : [...projectFilter, id]
+    );
+  };
+
+  const toggleProduct = (id: string) => {
+    if (!onProductChange) return;
+    onProductChange(
+      productFilter.includes(id)
+        ? productFilter.filter((p) => p !== id)
+        : [...productFilter, id]
+    );
+  };
+
   const clearStatuses = () => onStatusChange([]);
   const clearTeams = () => onTeamChange([]);
   const clearTaskTypes = () => onTaskTypeChange?.([]);
+  const clearProjects = () => onProjectChange?.([]);
+  const clearProducts = () => onProductChange?.([]);
+  const projectLabel = (id: string) =>
+    projectOptions.find((o) => o.value === id)?.label ?? id;
+  const productLabel = (id: string) =>
+    productOptions.find((o) => o.value === id)?.label ?? id;
 
   return (
     <Card>
@@ -248,11 +285,105 @@ export function TaskFilters({
                 </PopoverContent>
               </Popover>
             )}
+
+            {/* Project Multi-Select (optional) */}
+            {onProjectChange && projectOptions.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="min-w-32 justify-between">
+                    <span className="truncate">
+                      {projectFilter.length === 0
+                        ? "All Projects"
+                        : projectFilter.length === 1
+                        ? projectLabel(projectFilter[0])
+                        : `${projectFilter.length} projects`}
+                    </span>
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2" align="start">
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                    <span className="text-sm font-medium">Project</span>
+                    {projectFilter.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={clearProjects}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {projectOptions.map((opt) => (
+                      <label
+                        key={opt.value}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+                      >
+                        <Checkbox
+                          checked={projectFilter.includes(opt.value)}
+                          onCheckedChange={() => toggleProject(opt.value)}
+                        />
+                        <span className="text-sm">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+
+            {/* Product Multi-Select (optional) */}
+            {onProductChange && productOptions.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="min-w-32 justify-between">
+                    <span className="truncate">
+                      {productFilter.length === 0
+                        ? "All Products"
+                        : productFilter.length === 1
+                        ? productLabel(productFilter[0])
+                        : `${productFilter.length} products`}
+                    </span>
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-2" align="start">
+                  <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                    <span className="text-sm font-medium">Product</span>
+                    {productFilter.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={clearProducts}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {productOptions.map((opt) => (
+                      <label
+                        key={opt.value}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+                      >
+                        <Checkbox
+                          checked={productFilter.includes(opt.value)}
+                          onCheckedChange={() => toggleProduct(opt.value)}
+                        />
+                        <span className="text-sm">{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
           </div>
         </div>
 
         {/* Active Filters */}
-        {(statusFilter.length > 0 || teamFilter.length > 0 || taskTypeFilter.length > 0) && (
+        {(statusFilter.length > 0 || teamFilter.length > 0 || taskTypeFilter.length > 0 || projectFilter.length > 0 || productFilter.length > 0) && (
           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t">
             {statusFilter.map((status) => (
               <Badge key={status} variant="secondary" className="gap-1">
@@ -281,7 +412,25 @@ export function TaskFilters({
                 />
               </Badge>
             ))}
-            {(statusFilter.length > 0 || teamFilter.length > 0 || taskTypeFilter.length > 0) && (
+            {projectFilter.map((id) => (
+              <Badge key={id} variant="secondary" className="gap-1">
+                {projectLabel(id)}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:text-destructive"
+                  onClick={() => toggleProject(id)}
+                />
+              </Badge>
+            ))}
+            {productFilter.map((id) => (
+              <Badge key={id} variant="secondary" className="gap-1">
+                {productLabel(id)}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:text-destructive"
+                  onClick={() => toggleProduct(id)}
+                />
+              </Badge>
+            ))}
+            {(statusFilter.length > 0 || teamFilter.length > 0 || taskTypeFilter.length > 0 || projectFilter.length > 0 || productFilter.length > 0) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -290,6 +439,8 @@ export function TaskFilters({
                   clearStatuses();
                   clearTeams();
                   clearTaskTypes();
+                  clearProjects();
+                  clearProducts();
                 }}
               >
                 Clear all

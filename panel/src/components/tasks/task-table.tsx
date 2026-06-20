@@ -65,6 +65,9 @@ interface SortConfig {
 interface TaskTableProps {
   tasks: Task[] | undefined;
   isLoading: boolean;
+  // id -> display name maps for the Project / Product column
+  projectNames?: Record<string, string>;
+  productNames?: Record<string, string>;
   // Controlled sort props (optional for backwards compatibility)
   sortField?: SortField;
   sortDirection?: SortDirection;
@@ -146,6 +149,7 @@ function TaskTableSkeleton() {
           <TableCell className="whitespace-nowrap"><Skeleton className="h-6 w-16" /></TableCell>
           <TableCell className="whitespace-nowrap"><Skeleton className="h-6 w-12" /></TableCell>
           <TableCell className="whitespace-nowrap"><Skeleton className="h-4 w-14" /></TableCell>
+          <TableCell className="whitespace-nowrap"><Skeleton className="h-4 w-24" /></TableCell>
           <TableCell className="whitespace-nowrap"><Skeleton className="h-4 w-8" /></TableCell>
           <TableCell className="whitespace-nowrap"><Skeleton className="h-4 w-20" /></TableCell>
           <TableCell className="whitespace-nowrap"><Skeleton className="h-4 w-16" /></TableCell>
@@ -159,7 +163,7 @@ function TaskTableSkeleton() {
 function TaskTableEmpty() {
   return (
     <TableRow>
-      <TableCell colSpan={8} className="text-center py-8">
+      <TableCell colSpan={9} className="text-center py-8">
         <div className="text-muted-foreground">No tasks found</div>
       </TableCell>
     </TableRow>
@@ -197,6 +201,8 @@ function SortableHeader({ label, field, sortConfig, onSort, className }: Sortabl
 export function TaskTable({
   tasks,
   isLoading,
+  projectNames = {},
+  productNames = {},
   sortField: controlledSortField,
   sortDirection: controlledSortDirection,
   onSortChange,
@@ -412,6 +418,7 @@ export function TaskTable({
                 onSort={handleSort}
                 className="whitespace-nowrap"
               />
+              <TableHead className="whitespace-nowrap">Project / Product</TableHead>
               <SortableHeader
                 label="Priority"
                 field="priority"
@@ -515,6 +522,18 @@ export function TaskTable({
                     </TableCell>
                     <TableCell className="capitalize whitespace-nowrap">
                       {task.team.replace(/_/g, " ")}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm">
+                      {task.project_id && projectNames[task.project_id] ? (
+                        <span>{projectNames[task.project_id]}</span>
+                      ) : task.product_id && productNames[task.product_id] ? (
+                        <span className="text-muted-foreground">
+                          {productNames[task.product_id]}{" "}
+                          <span className="text-xs">(product)</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       <Badge className={(priorityColors[task.priority] ?? priorityColors[2]) + " text-xs"}>
