@@ -339,6 +339,17 @@ class TaskTable(Base):
         JSON, nullable=True
     )
 
+    # Structured content (migration 041). notes_structured is the typed source
+    # of truth for every role's note; the TEXT note columns above are a derived
+    # mirror. orchestration_markers holds the machine markers split out of
+    # quick_context (never human-facing). pr_reviewer_notes is the reviewer's
+    # own slot so a review no longer overwrites qa_notes / dev_notes.
+    pr_reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes_structured: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    orchestration_markers: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True
+    )
+
     # Gateway coordination (added in migration 006_gateway_columns).
     # active_claimant_id + last_heartbeat_at implement the single-claimant
     # invariant: only one agent holds a task at a time and they prove

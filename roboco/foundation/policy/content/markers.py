@@ -1,0 +1,134 @@
+"""Typed accessors for ``Task.orchestration_markers``.
+
+The machine markers that used to be string-packed into the human
+``quick_context`` blob (``original_developer:<uuid>``, ``documenter:<uuid>``,
+``required_cells:``, ``external_pr_head=``, ``self_heal_fp=``, ``dismissed=1``,
+``external_pr_supersede ...``) live in the ``orchestration_markers`` JSON column
+after migration 041. These accessors are the single read/write surface for them.
+
+Writes REASSIGN the dict (``task.orchestration_markers = {...}``) rather than
+mutate in place, so SQLAlchemy's change tracking flags the column dirty (a plain
+JSON column does not detect in-place mutation).
+"""
+
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+
+class HasMarkers(Protocol):
+    """Anything carrying the markers column (the ORM task row or domain model)."""
+
+    orchestration_markers: dict[str, Any] | None
+
+
+# Marker keys — the single source of the vocabulary.
+ORIGINAL_DEVELOPER = "original_developer"
+DOCUMENTER = "documenter"
+REQUIRED_CELLS = "required_cells"
+EXTERNAL_PR_HEAD = "external_pr_head"
+EXTERNAL_PR_SUPERSEDE = "external_pr_supersede"
+SELF_HEAL_FP = "self_heal_fp"
+DISMISSED = "dismissed"
+
+
+def get_marker(task: HasMarkers, key: str, default: Any = None) -> Any:
+    return (task.orchestration_markers or {}).get(key, default)
+
+
+def set_marker(task: HasMarkers, key: str, value: Any) -> None:
+    markers = dict(task.orchestration_markers or {})
+    markers[key] = value
+    task.orchestration_markers = markers
+
+
+def clear_marker(task: HasMarkers, key: str) -> None:
+    current = task.orchestration_markers or {}
+    if key not in current:
+        return
+    markers = dict(current)
+    del markers[key]
+    task.orchestration_markers = markers or None
+
+
+# --- original developer ---------------------------------------------------- #
+
+
+def get_original_developer(task: HasMarkers) -> str | None:
+    val = get_marker(task, ORIGINAL_DEVELOPER)
+    return str(val) if val else None
+
+
+def set_original_developer(task: HasMarkers, agent_id: Any) -> None:
+    set_marker(task, ORIGINAL_DEVELOPER, str(agent_id))
+
+
+# --- documenter ------------------------------------------------------------ #
+
+
+def get_documenter(task: HasMarkers) -> str | None:
+    val = get_marker(task, DOCUMENTER)
+    return str(val) if val else None
+
+
+def set_documenter(task: HasMarkers, agent_id: Any) -> None:
+    set_marker(task, DOCUMENTER, str(agent_id))
+
+
+# --- required cells -------------------------------------------------------- #
+
+
+def get_required_cells(task: HasMarkers) -> list[str]:
+    val = get_marker(task, REQUIRED_CELLS, [])
+    return [str(c) for c in val] if isinstance(val, list) else []
+
+
+def set_required_cells(task: HasMarkers, cells: list[str]) -> None:
+    set_marker(task, REQUIRED_CELLS, [str(c) for c in cells])
+
+
+# --- self-heal fingerprint ------------------------------------------------- #
+
+
+def get_self_heal_fingerprint(task: HasMarkers) -> str | None:
+    val = get_marker(task, SELF_HEAL_FP)
+    return str(val) if val else None
+
+
+def set_self_heal_fingerprint(task: HasMarkers, fingerprint: str) -> None:
+    set_marker(task, SELF_HEAL_FP, fingerprint)
+
+
+# --- external PR head ------------------------------------------------------ #
+
+
+def get_external_pr_head(task: HasMarkers) -> str | None:
+    val = get_marker(task, EXTERNAL_PR_HEAD)
+    return str(val) if val else None
+
+
+def set_external_pr_head(task: HasMarkers, head_sha: str) -> None:
+    set_marker(task, EXTERNAL_PR_HEAD, head_sha)
+
+
+# --- external PR supersede ------------------------------------------------- #
+
+
+def get_external_pr_supersede(task: HasMarkers) -> str | None:
+    val = get_marker(task, EXTERNAL_PR_SUPERSEDE)
+    return str(val) if val else None
+
+
+def set_external_pr_supersede(task: HasMarkers, marker: str) -> None:
+    set_marker(task, EXTERNAL_PR_SUPERSEDE, marker)
+
+
+# --- dismissed ------------------------------------------------------------- #
+
+
+def is_dismissed(task: HasMarkers) -> bool:
+    return bool(get_marker(task, DISMISSED, False))
+
+
+def mark_dismissed(task: HasMarkers) -> None:
+    set_marker(task, DISMISSED, True)

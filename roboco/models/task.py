@@ -247,6 +247,19 @@ class Task(TimestampMixin):
         description="RAG context: similar tasks, learnings, patterns, standards",
     )
 
+    # Structured content (migration 041)
+    pr_reviewer_notes: str | None = Field(
+        default=None, description="PR reviewer's rendered verdict (own slot)"
+    )
+    notes_structured: dict | None = Field(
+        default=None,
+        description="Typed structured note payloads — the source of truth",
+    )
+    orchestration_markers: dict | None = Field(
+        default=None,
+        description="Machine markers split out of quick_context (not human-facing)",
+    )
+
     # Gateway coordination (added in migration 006_gateway_columns).
     active_claimant_id: UUID | None = Field(
         default=None,
@@ -374,7 +387,9 @@ class TaskUpdate(RobocoBase):
     estimated_complexity: Complexity | None = None
     dev_notes: str | None = None
     qa_notes: str | None = None
+    auditor_notes: str | None = None
     quick_context: str | None = None
+    pr_reviewer_notes: str | None = None
 
     # Git fields
     task_type: TaskType | None = None

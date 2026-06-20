@@ -235,6 +235,7 @@ class TaskUpdate(BaseModel):
     dev_notes: str | None = None
     qa_notes: str | None = None
     auditor_notes: str | None = None
+    pr_reviewer_notes: str | None = None
     quick_context: str | None = None
 
     # Lifecycle override — privileged/admin only. Applied by the route as an
@@ -333,7 +334,10 @@ class TaskResponse(BaseModel):
     dev_notes: str | None
     qa_notes: str | None
     auditor_notes: str | None = None
+    pr_reviewer_notes: str | None = None
     quick_context: str | None
+    notes_structured: dict | None = None
+    orchestration_markers: dict | None = None
 
     # Review Status
     self_verified: bool
