@@ -321,4 +321,21 @@ if echo "$low" | grep -qE '(^|[[:space:];&|])rm[[:space:]]+[^|;&]*-[[:alpha:]]*[
     fi
 fi
 
+# --- package-environment mutations targeting /app (ALL providers) -------------
+# /app holds the orchestrator code and the MCP-gateway venv (/app/.venv). An
+# agent that `uv sync` / `pip install`s into /app rebuilds that venv and breaks
+# its OWN gateway tools (every roboco-flow / -do / -git verb) — stranding the
+# agent and getting its task reaped. Agents manage dependencies in their
+# workspace clone under /data/workspaces, never in /app. Two-step: a
+# package-mutation verb AND a target that resolves to /app's environment
+# (cd /app, --project/--directory /app, /app/.venv, UV_PROJECT_ENVIRONMENT=/app).
+# Reads of /app (cat/ls/grep) and workspace installs are untouched. Deliberately
+# NOT gated by ROBOCO_GUARD_SKIP_GIT, so it fires for every provider — the Claude
+# PreToolUse hook AND the grok exfil hook (and future provider hooks).
+if echo "$low" | grep -qE '(^|[[:space:];&|])(uv[[:space:]]+(sync|lock|add|remove)|uv[[:space:]]+pip[[:space:]]+(install|uninstall)|pip3?[[:space:]]+(install|uninstall))' && \
+   echo "$low" | grep -qE '(/app/\.venv|--project[[:space:]=]+"?/app([^a-z]|$)|--directory[[:space:]=]+"?/app([^a-z]|$)|uv_project_environment="?/app([^a-z]|$)|(^|[[:space:];&|])cd[[:space:]]+"?/app([^a-z]|$))'; then
+    echo "Denied: installing or syncing packages into /app rebuilds the orchestrator / MCP-gateway venv (/app/.venv) and breaks your own gateway tools. Manage dependencies in your workspace clone under /data/workspaces, never /app. If /app's environment looks broken, report it via your blocked / escalation verb — don't try to repair it." >&2
+    exit 2
+fi
+
 exit 0

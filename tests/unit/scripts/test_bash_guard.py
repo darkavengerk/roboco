@@ -381,3 +381,71 @@ def test_allows_pytest_even_if_suite_uses_requests() -> None:
     """The command string is just the runner — no http-client token and
     no internal host literal — so it must pass."""
     assert _run("uv run python -m pytest tests/unit/ -q") == _ALLOWED
+
+
+# ---------------------------------------------------------------------------
+# Package-environment mutations targeting /app (the orchestrator + MCP-gateway
+# venv). Must be blocked for EVERY provider so an agent can't corrupt its own
+# gateway by `uv sync` / `pip install`ing into /app.
+# ---------------------------------------------------------------------------
+
+
+def test_blocks_uv_sync_cd_app() -> None:
+    assert _run("cd /app && uv sync") == _DENIED
+
+
+def test_blocks_pip_install_cd_app() -> None:
+    assert _run("cd /app && pip install httpcore httpx") == _DENIED
+
+
+def test_blocks_uv_sync_project_app() -> None:
+    assert _run("uv sync --project /app") == _DENIED
+
+
+def test_blocks_uv_pip_install_app_venv() -> None:
+    assert _run("uv pip install --python /app/.venv/bin/python httpx") == _DENIED
+
+
+def test_blocks_uv_project_environment_app() -> None:
+    assert _run("UV_PROJECT_ENVIRONMENT=/app/.venv uv sync --no-dev") == _DENIED
+
+
+def test_blocks_app_mutation_even_in_grok_mode() -> None:
+    """Grok runs the hook with ROBOCO_GUARD_SKIP_GIT=1; the /app rule is NOT a
+    git rule, so it must STILL fire — every provider is protected."""
+    payload = json.dumps(
+        {"tool_name": "Bash", "tool_input": {"command": "cd /app && uv sync"}}
+    )
+    result = subprocess.run(
+        [str(GUARD)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "ROBOCO_GUARD_SKIP_GIT": "1"},
+    )
+    assert result.returncode == _DENIED
+
+
+def test_allows_uv_sync_in_workspace() -> None:
+    """Legit dependency sync in the agent's own workspace clone must pass."""
+    assert (
+        _run("cd /data/workspaces/roboco/backend/be-dev-1 && uv sync --extra dev")
+        == _ALLOWED
+    )
+
+
+def test_allows_pip_install_in_workspace() -> None:
+    assert _run("pip install -r requirements.txt") == _ALLOWED
+
+
+def test_allows_reading_files_under_app() -> None:
+    """Reads of /app (not env mutations) are untouched."""
+    assert _run("cat /app/pyproject.toml") == _ALLOWED
+    assert _run("ls -la /app/.venv/bin") == _ALLOWED
+
+
+def test_allows_uv_sync_for_app_named_workspace_project() -> None:
+    """A workspace path that merely contains 'app' (e.g. .../myapp/...) must not
+    trip the rule — the boundary requires /app to be its own path segment."""
+    assert _run("cd /data/workspaces/myapp/backend/be-dev-1 && uv sync") == _ALLOWED
