@@ -36,6 +36,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   [TaskStatus.NEEDS_REVISION]: "Needs Revision",
   [TaskStatus.AWAITING_QA]: "Awaiting QA",
   [TaskStatus.AWAITING_DOCUMENTATION]: "Awaiting Docs",
+  [TaskStatus.AWAITING_PR_REVIEW]: "Awaiting PR Review",
   [TaskStatus.AWAITING_PM_REVIEW]: "Awaiting PM Review",
   [TaskStatus.AWAITING_CEO_APPROVAL]: "Awaiting CEO Approval",
   [TaskStatus.COMPLETED]: "Completed",

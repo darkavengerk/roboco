@@ -13,6 +13,7 @@ export enum TaskStatus {
   NEEDS_REVISION = "needs_revision",
   AWAITING_QA = "awaiting_qa",
   AWAITING_DOCUMENTATION = "awaiting_documentation",
+  AWAITING_PR_REVIEW = "awaiting_pr_review",
   AWAITING_PM_REVIEW = "awaiting_pm_review",
   AWAITING_CEO_APPROVAL = "awaiting_ceo_approval",
   COMPLETED = "completed",

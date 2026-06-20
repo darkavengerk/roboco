@@ -12,6 +12,7 @@ const statusColors: Record<TaskStatus, string> = {
   [TaskStatus.NEEDS_REVISION]: "bg-orange-500",
   [TaskStatus.AWAITING_QA]: "bg-yellow-600",
   [TaskStatus.AWAITING_DOCUMENTATION]: "bg-indigo-500",
+  [TaskStatus.AWAITING_PR_REVIEW]: "bg-teal-600",
   [TaskStatus.AWAITING_PM_REVIEW]: "bg-orange-600",
   [TaskStatus.AWAITING_CEO_APPROVAL]: "bg-amber-600",
   [TaskStatus.COMPLETED]: "bg-green-500",
@@ -24,7 +25,7 @@ interface TaskStatusBadgeProps {
 
 export function TaskStatusBadge({ status }: TaskStatusBadgeProps) {
   return (
-    <Badge className={statusColors[status] + " text-white"}>
+    <Badge className={`${statusColors[status] ?? "bg-slate-600"} text-white`}>
       {status.replace(/_/g, " ")}
     </Badge>
   );
