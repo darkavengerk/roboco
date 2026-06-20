@@ -125,8 +125,48 @@ def test_qa_on_needs_revision_coordination_still_blocked() -> None:
 
 
 def test_pm_on_needs_revision_noncoordination_still_blocked() -> None:
-    """A normal (code) needs_revision task is still dev/doc-only for a PM."""
+    """A normal (code) needs_revision task is still dev/doc-only for a PM when it
+    is NOT PM-owned (owner_is_pm unset) — the raw default behaviour."""
     reason = AgentOrchestrator._readiness_check_role_for_status(
         agent_id="be-pm", role="cell_pm", status="needs_revision", is_coordination=False
+    )
+    assert reason is not None
+
+
+# ---------------------------------------------------------------------------
+# Gate-failed assembled PRs — the PR-review gate's pr_fail sends a cell->root /
+# root->master PR back to needs_revision, still owned by the PM. It is NOT a
+# coordination task (it has a project + branch), so the readiness waiver relies
+# on owner_is_pm (mirroring _dispatch_revision_coordination_roots). Regression
+# for the production deadlock: "spawn refused for be-pm ... state=needs_revision
+# requires role in {'documenter','developer'} but agent be-pm is 'cell_pm'".
+# ---------------------------------------------------------------------------
+
+
+def test_pm_on_needs_revision_owner_is_pm_allowed() -> None:
+    """A gate-failed assembled PR is PM-owned but NOT coordination; the owning
+    cell/main PM must be spawnable to revise it."""
+    for role in ("main_pm", "cell_pm"):
+        assert (
+            AgentOrchestrator._readiness_check_role_for_status(
+                agent_id="be-pm", role=role, status="needs_revision", owner_is_pm=True
+            )
+            is None
+        )
+
+
+def test_pm_on_verifying_owner_is_pm_allowed() -> None:
+    assert (
+        AgentOrchestrator._readiness_check_role_for_status(
+            agent_id="be-pm", role="cell_pm", status="verifying", owner_is_pm=True
+        )
+        is None
+    )
+
+
+def test_qa_on_needs_revision_owner_is_pm_still_blocked() -> None:
+    """owner_is_pm widens to the PM roles only — QA is still a misroute."""
+    reason = AgentOrchestrator._readiness_check_role_for_status(
+        agent_id="be-qa", role="qa", status="needs_revision", owner_is_pm=True
     )
     assert reason is not None

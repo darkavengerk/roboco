@@ -2559,7 +2559,12 @@ class AgentOrchestrator:
 
     @staticmethod
     def _readiness_check_role_for_status(
-        agent_id: str, role: str, status: str, *, is_coordination: bool = False
+        agent_id: str,
+        role: str,
+        status: str,
+        *,
+        is_coordination: bool = False,
+        owner_is_pm: bool = False,
     ) -> str | None:
         """Verify agent role matches the role expected for the task status.
 
@@ -2568,10 +2573,14 @@ class AgentOrchestrator:
         developer/documenter to defang the bug where QA got
         respawned on a `needs_revision` task via the crash-restart path
         and immediately hit ``role 'qa' may not claim from status
-        'needs_revision'`` at the gateway. A coordination root (no code; product
-        fan-out owned by a PM) is the exception: it has no dev, so a CEO-rejected
-        one returns to its PM — the dev-owned states also accept the PM roles for
-        it (a pure widening; nothing currently allowed is blocked).
+        'needs_revision'`` at the gateway. The exception is a PM-OWNED revision:
+        a coordination root (no code; product fan-out owned by a PM, a CEO-reject
+        returning to its PM) AND a gate-failed assembled PR (the PR-review gate's
+        ``pr_fail`` sends a cell->root / root->master PR back to needs_revision,
+        still owned by the cell/main PM). In both the owner is a PM, so the
+        dev-owned states also accept the PM roles when ``owner_is_pm`` — matching
+        ``_dispatch_revision_coordination_roots``, which re-spawns exactly those.
+        A pure widening; nothing currently allowed is blocked, and QA stays out.
         """
         role_mismatch: dict[str, str | set[str]] = {
             "awaiting_qa": "qa",
@@ -2587,7 +2596,9 @@ class AgentOrchestrator:
         required = role_mismatch.get(status)
         if required is None:
             return None
-        if is_coordination and status in ("needs_revision", "verifying"):
+        if status in ("needs_revision", "verifying") and (
+            is_coordination or owner_is_pm
+        ):
             required = set(required) | {"cell_pm", "main_pm"}
         ok = role in required if isinstance(required, set) else role == required
         if ok:
@@ -2614,8 +2625,14 @@ class AgentOrchestrator:
             # the readiness and stuck-detection paths agree.
             if _branch_is_expected(task) and not task.get("branch_name"):
                 return f"state={status} but branch_name is unset"
+        owner = task.get("assigned_to") or task.get("claimed_by")
+        owner_role = get_agent_role(self._resolve_agent_slug(owner)) if owner else None
         return self._readiness_check_role_for_status(
-            agent_id, role, status, is_coordination=_is_coordination_task(task)
+            agent_id,
+            role,
+            status,
+            is_coordination=_is_coordination_task(task),
+            owner_is_pm=owner_role in ("cell_pm", "main_pm"),
         )
 
     @staticmethod
