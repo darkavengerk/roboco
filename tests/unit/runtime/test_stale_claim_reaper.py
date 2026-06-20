@@ -267,3 +267,106 @@ async def test_reaper_never_kills_non_grok_container(
     remove_mock.assert_not_awaited()
     assert "be-dev-1" in orch._instances
     svc.unclaim_for_reaper.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reap_spares_live_container_on_registry_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Registry amnesia: the orchestrator forgot the instance (empty `_instances`,
+    e.g. after a restart) but the container is still running per Docker — the
+    task must NOT be reaped. This closes the be-dev-1 over-reap: a live agent the
+    orchestrator merely lost track of is no longer churned out from under work.
+    """
+    now = datetime.now(UTC)
+    task_id = uuid4()
+    task = type(
+        "T",
+        (),
+        {
+            "id": task_id,
+            "last_heartbeat_at": now - timedelta(seconds=600),
+            "assigned_to": AGENT_UUIDS["be-dev-1"],
+            "claimed_by": None,
+        },
+    )()
+
+    orch = AgentOrchestrator.__new__(AgentOrchestrator)
+    orch._claim_heartbeat_ttl = 300
+    orch._grok_idle_kill_ttl = 900
+    orch._instances = {}  # registry lost; container still up
+    monkeypatch.setattr(
+        orch, "_inspect_container_state", AsyncMock(return_value=(True, None))
+    )
+    svc = AsyncMock()
+    svc.list_in_progress_or_claimed.return_value = [task]
+    svc.unclaim_for_reaper = AsyncMock()
+
+    await orch._reap_with_service(svc)
+
+    svc.unclaim_for_reaper.assert_not_awaited()  # spared — Docker says it's alive
+
+
+@pytest.mark.asyncio
+async def test_reap_releases_on_registry_miss_when_container_gone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Registry miss AND Docker says the container is gone → genuinely dead → reaped."""
+    now = datetime.now(UTC)
+    task_id = uuid4()
+    task = type(
+        "T",
+        (),
+        {
+            "id": task_id,
+            "last_heartbeat_at": now - timedelta(seconds=600),
+            "assigned_to": AGENT_UUIDS["be-dev-1"],
+            "claimed_by": None,
+        },
+    )()
+
+    orch = AgentOrchestrator.__new__(AgentOrchestrator)
+    orch._claim_heartbeat_ttl = 300
+    orch._grok_idle_kill_ttl = 900
+    orch._instances = {}
+    monkeypatch.setattr(
+        orch, "_inspect_container_state", AsyncMock(return_value=(False, 0))
+    )
+    svc = AsyncMock()
+    svc.list_in_progress_or_claimed.return_value = [task]
+    svc.unclaim_for_reaper = AsyncMock()
+
+    await orch._reap_with_service(svc)
+
+    svc.unclaim_for_reaper.assert_awaited_once_with(task_id)
+
+
+@pytest.mark.asyncio
+async def test_registry_uninitialised_skips_docker_fallback() -> None:
+    """With `_instances` never initialised (None — the __new__ unit harness), the
+    Docker fallback is skipped and the stale task reaps as before; no accidental
+    Docker probing where there's no registry to be amnesiac about.
+    """
+    now = datetime.now(UTC)
+    task_id = uuid4()
+    task = type(
+        "T",
+        (),
+        {
+            "id": task_id,
+            "last_heartbeat_at": now - timedelta(seconds=600),
+            "assigned_to": AGENT_UUIDS["be-dev-1"],
+            "claimed_by": None,
+        },
+    )()
+
+    orch = AgentOrchestrator.__new__(AgentOrchestrator)
+    orch._claim_heartbeat_ttl = 300
+    # _instances intentionally NOT set -> getattr yields None -> no fallback.
+    svc = AsyncMock()
+    svc.list_in_progress_or_claimed.return_value = [task]
+    svc.unclaim_for_reaper = AsyncMock()
+
+    await orch._reap_with_service(svc)
+
+    svc.unclaim_for_reaper.assert_awaited_once_with(task_id)

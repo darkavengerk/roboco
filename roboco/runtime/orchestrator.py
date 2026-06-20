@@ -6749,6 +6749,35 @@ Start now: evidence(task_id="{task_id}")
         instance = instances.get(self._resolve_agent_slug(str(owner)))
         return instance is not None and instance.state == AgentState.ACTIVE
 
+    async def _assignee_container_running(self, task: Any) -> bool:
+        """Docker-liveness fallback for the reaper on an instance-registry MISS.
+
+        ``_assignee_has_active_instance`` reads the in-memory ``_instances``
+        registry, which is lost on an orchestrator restart while the agent's
+        container keeps running. Without a fallback the heartbeat-stale reaper
+        then releases a task out from under a live agent the orchestrator has
+        merely forgotten — registry amnesia, the over-reap that hit be-dev-1.
+        This asks Docker directly, but ONLY on a true registry miss: a known
+        instance (ACTIVE or stopped) is authoritative and not second-guessed,
+        and an uninitialised registry (``None`` — e.g. a unit-test harness) is
+        left to the existing behaviour. Any error (no docker binary, inspect
+        fails) yields False, so non-Docker test/dev contexts are unaffected.
+        """
+        instances = getattr(self, "_instances", None)
+        if instances is None:
+            return False
+        owner = getattr(task, "assigned_to", None) or getattr(task, "claimed_by", None)
+        if not owner:
+            return False
+        slug = self._resolve_agent_slug(str(owner))
+        if slug in instances:
+            return False
+        try:
+            is_running, _ = await self._inspect_container_state(f"roboco-agent-{slug}")
+        except Exception:
+            return False
+        return is_running
+
     def _wedged_grok_slug(
         self, task: Any, last_heartbeat: "datetime | None"
     ) -> str | None:
@@ -6828,14 +6857,19 @@ Start now: evidence(task_id="{task_id}")
         for t in candidates:
             ts = t.last_heartbeat_at
             if ts is None or ts < cutoff:
-                # A live container normally protects its task. The sole exception
-                # is a wedged GROK container — ACTIVE yet firing no verb — which
-                # the live-instance skip would shield forever. Kill +
-                # evict it past the grok-idle TTL (then fall through to release);
-                # a live non-grok agent, or a grok within the TTL, is skipped.
-                if self._assignee_has_active_instance(
+                # A live container normally protects its task. Prefer the
+                # in-memory registry; on a registry MISS (e.g. the orchestrator
+                # restarted and forgot a still-running container) fall back to
+                # asking Docker, so we don't reap a task out from under a live
+                # agent. The sole exception is a wedged GROK container — ACTIVE
+                # yet firing no verb — which the live skip would shield forever:
+                # kill + evict it past the grok-idle TTL (then fall through to
+                # release); a live non-grok agent, or a grok within the TTL, is
+                # skipped.
+                live = self._assignee_has_active_instance(
                     t
-                ) and not await self._maybe_kill_wedged_grok(t, ts):
+                ) or await self._assignee_container_running(t)
+                if live and not await self._maybe_kill_wedged_grok(t, ts):
                     continue
                 task_id = require_uuid(t.id)
                 try:
