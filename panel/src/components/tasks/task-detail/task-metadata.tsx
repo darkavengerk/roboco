@@ -443,7 +443,7 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
       {/* Branch Name - read-only, but clickable (opens the branch on GitHub)
           and copyable. Same look as before; the link/copy are additive. */}
       {task.branch_name && (
-        <Card>
+        <Card className="col-span-2">
           <CardContent className="pt-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
               <GitBranch className="h-4 w-4" />
@@ -458,12 +458,12 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
                   title="Open branch in GitHub"
                   className="inline-flex transition-opacity hover:opacity-80"
                 >
-                  <Badge variant="outline" className="font-mono text-xs">
+                  <Badge variant="outline" className="font-mono text-sm">
                     {task.branch_name}
                   </Badge>
                 </a>
               ) : (
-                <Badge variant="outline" className="font-mono text-xs">
+                <Badge variant="outline" className="font-mono text-sm">
                   {task.branch_name}
                 </Badge>
               )}

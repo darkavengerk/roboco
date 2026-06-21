@@ -489,7 +489,7 @@ export function TaskHeader({ task, onAction }: TaskHeaderProps) {
                 shift a neighbor; the id is read-only and copies the FULL uuid. */}
             <div className="flex items-center gap-2 mt-1.5">
               <span
-                className="inline-flex shrink-0 items-center gap-1 rounded-md border bg-muted/40 px-2 py-0.5 font-mono text-xs text-muted-foreground"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border bg-muted/40 px-2.5 font-mono text-sm text-muted-foreground"
                 title={task.id}
               >
                 #{task.id.slice(0, 8)}
