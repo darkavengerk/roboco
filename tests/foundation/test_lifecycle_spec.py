@@ -406,7 +406,10 @@ def test_qa_pass_self_review_blocks() -> None:
 def test_claim_rules_match_pre_gateway_table() -> None:
     """PERMISSIONS.md "What Each Role Can Claim From" — exact match.
 
-    PMs claim from PENDING only; BACKLOG → PENDING is a separate `activate`
+    PMs claim from PENDING and NEEDS_REVISION — the latter to recover a rejected
+    coordination task (pr_fail / qa_fail / ceo_reject) by re-planning and
+    re-delegating fixes (scoped by give_me_work routing, which offers only the
+    caller's own assigned tasks). BACKLOG → PENDING is a separate `activate`
     action (strict transitions; no implicit activate-on-claim).
     """
     assert spec.CLAIM_RULES[spec.Role.DEVELOPER] == frozenset(
@@ -416,8 +419,12 @@ def test_claim_rules_match_pre_gateway_table() -> None:
     assert spec.CLAIM_RULES[spec.Role.DOCUMENTER] == frozenset(
         {spec.Status.PENDING, spec.Status.AWAITING_DOCUMENTATION}
     )
-    assert spec.CLAIM_RULES[spec.Role.CELL_PM] == frozenset({spec.Status.PENDING})
-    assert spec.CLAIM_RULES[spec.Role.MAIN_PM] == frozenset({spec.Status.PENDING})
+    assert spec.CLAIM_RULES[spec.Role.CELL_PM] == frozenset(
+        {spec.Status.PENDING, spec.Status.NEEDS_REVISION}
+    )
+    assert spec.CLAIM_RULES[spec.Role.MAIN_PM] == frozenset(
+        {spec.Status.PENDING, spec.Status.NEEDS_REVISION}
+    )
 
 
 def test_team_rules_pin_team_for_seeded_agents() -> None:

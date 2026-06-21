@@ -1067,6 +1067,11 @@ class Choreographer:
         Per-role claim authority (CLAIM_RULES) is enforced inside
         spec.can_invoke_action when action == "claim", called by
         can_invoke_intent, so no separate spec.can_claim call is needed.
+        A PM recovering a NEEDS_REVISION coordination task is scoped by
+        give_me_work routing (it only ever offers an agent its OWN assigned
+        tasks), exactly as developer leaf-revisions are — not by a gateway-only
+        ownership gate, which would diverge from the spec (the parity invariant
+        requires gateway authorization == spec authorization).
         """
         t, briefing, role_str = ctx.task, ctx.briefing, ctx.role_str
         verb_name = ctx.verb_name

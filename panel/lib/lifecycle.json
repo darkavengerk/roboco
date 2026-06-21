@@ -2,6 +2,7 @@
   "claim_rules": {
     "auditor": [],
     "cell_pm": [
+      "needs_revision",
       "pending"
     ],
     "ceo": [],
@@ -15,6 +16,7 @@
     ],
     "head_marketing": [],
     "main_pm": [
+      "needs_revision",
       "pending"
     ],
     "pr_reviewer": [

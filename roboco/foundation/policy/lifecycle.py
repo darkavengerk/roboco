@@ -666,8 +666,20 @@ CLAIM_RULES: dict[Role, frozenset[Status]] = {
     Role.DEVELOPER: frozenset({Status.PENDING, Status.NEEDS_REVISION}),
     Role.QA: frozenset({Status.AWAITING_QA}),
     Role.DOCUMENTER: frozenset({Status.PENDING, Status.AWAITING_DOCUMENTATION}),
-    Role.CELL_PM: frozenset({Status.PENDING}),
-    Role.MAIN_PM: frozenset({Status.PENDING}),
+    # PMs re-claim NEEDS_REVISION to recover a rejected coordination task: when
+    # an assembled cell→root / root→master PR fails the in-path gate (pr_fail),
+    # QA fails a planning task, or the CEO rejects (ceo_reject), the task lands
+    # in NEEDS_REVISION. Before this, that state was developer-claim-only, so a
+    # PM-owned coordination task had NO actor and no exit but cancel — the cell
+    # PM escalated in a loop (the in-path PR-review gate introduced this path;
+    # pre-gate, the PM re-delegated from in_progress). The PM now re-claims via
+    # i_will_plan, revises the plan, and re-delegates the fixes. pr_fail/qa_fail
+    # reassign the task to its owning PM, so this is scoped by the SAME mechanism
+    # that scopes a developer's leaf-revision: give_me_work only ever offers an
+    # agent its own assigned tasks. (A per-instance ownership gate at the gateway
+    # would diverge from this spec — the parity invariant forbids that.)
+    Role.CELL_PM: frozenset({Status.PENDING, Status.NEEDS_REVISION}),
+    Role.MAIN_PM: frozenset({Status.PENDING, Status.NEEDS_REVISION}),
     Role.PRODUCT_OWNER: frozenset(),
     Role.HEAD_MARKETING: frozenset(),
     Role.AUDITOR: frozenset(),
