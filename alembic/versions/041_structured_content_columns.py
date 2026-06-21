@@ -44,6 +44,9 @@ _LINE_MARKERS: dict[str, tuple[str, bool]] = {
     "original_developer:": ("original_developer", False),
     "documenter:": ("documenter", False),
     "required_cells:": ("required_cells", True),
+    # pr_author was a write-only marker (no reader); park legacy values out of
+    # the human quick_context rather than leave them as panel soup.
+    "pr_author:": ("pr_author", False),
 }
 # Whitespace-token ``key=value`` markers (may be space-appended onto a line).
 _TOKEN_MARKERS: dict[str, str] = {

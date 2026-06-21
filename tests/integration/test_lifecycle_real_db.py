@@ -548,7 +548,7 @@ async def test_qa_fail_path(
     # spec layer's slug-based self-review check is a separate code path
     # (``_extract_original_developer`` in qa.py) which only fires when
     # an actor's slug equals this value, so a UUID here doesn't trip it.
-    task.quick_context = f"original_developer:{dev_agent.id}"
+    task.orchestration_markers = {"original_developer": str(dev_agent.id)}
     await db_session.flush()
 
     task_service = TaskService(db_session)

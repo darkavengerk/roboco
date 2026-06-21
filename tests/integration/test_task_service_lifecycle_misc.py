@@ -669,7 +669,7 @@ async def test_submit_for_qa_clears_assignment_and_records_dev(
     assert out is not None
     assert out.status == TaskStatus.AWAITING_QA
     assert out.assigned_to is None
-    assert "original_developer:" in (out.quick_context or "")
+    assert (out.orchestration_markers or {}).get("original_developer")
 
 
 # ---------------------------------------------------------------------------
@@ -687,7 +687,7 @@ async def test_fail_qa_with_indexing_runs(
     dev_id = task_setup["agent_id"]
     task = await svc.create(_req(task_setup))
     task.status = TaskStatus.AWAITING_QA
-    task.quick_context = f"original_developer:{dev_id}"
+    task.orchestration_markers = {"original_developer": str(dev_id)}
     await db_session.flush()
     fake_optimal = MagicMock()
     fake_optimal.record_review = AsyncMock()

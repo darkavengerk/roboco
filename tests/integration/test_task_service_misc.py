@@ -25,6 +25,7 @@ Targets:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
@@ -37,6 +38,7 @@ from roboco.models import AgentRole, AgentStatus, Team
 from roboco.models.base import Complexity, TaskNature, TaskStatus, TaskType
 from roboco.models.permissions import AgentContext
 from roboco.models.task import TaskCreateRequest
+from roboco.foundation.policy.content import markers
 from roboco.models.work_session import WorkSessionStatus
 from roboco.services.base import ValidationError
 from roboco.services.task import (
@@ -146,25 +148,25 @@ def test_default_claim_statuses_for_none() -> None:
 
 
 def test_extract_original_developer_invalid_format() -> None:
-    """Invalid UUID format returns None even when prefix matches."""
-    out = extract_original_developer("original_developer:not-a-uuid")
-    assert out is None
+    """Invalid UUID format returns None even when the marker is present."""
+    task = SimpleNamespace(orchestration_markers={"original_developer": "not-a-uuid"})
+    assert extract_original_developer(task) is None
 
 
 def test_extract_original_developer_no_match() -> None:
-    out = extract_original_developer("some other context")
-    assert out is None
+    task = SimpleNamespace(orchestration_markers={"documenter": "x"})
+    assert extract_original_developer(task) is None
 
 
 def test_extract_original_developer_empty() -> None:
-    assert extract_original_developer(None) is None
-    assert extract_original_developer("") is None
+    assert extract_original_developer(SimpleNamespace(orchestration_markers=None)) is None
+    assert extract_original_developer(SimpleNamespace(orchestration_markers={})) is None
 
 
 def test_extract_original_developer_valid() -> None:
     test_uuid = "12345678-1234-1234-1234-123456789012"
-    out = extract_original_developer(f"original_developer:{test_uuid}")
-    assert out == test_uuid
+    task = SimpleNamespace(orchestration_markers={"original_developer": test_uuid})
+    assert extract_original_developer(task) == test_uuid
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +537,7 @@ def test_validate_not_self_review_qa_self(task_setup: dict) -> None:
     svc = task_setup["svc"]
     aid = uuid4()
     task = MagicMock()
-    task.quick_context = f"original_developer:{aid}"
+    task.orchestration_markers = {"original_developer": str(aid)}
     agent = MagicMock(role=AgentRole.QA)
     out = svc._validate_not_self_review(task, agent, agent_id=aid)
     assert "self-review" in (out or "")
@@ -544,13 +546,13 @@ def test_validate_not_self_review_qa_self(task_setup: dict) -> None:
 def test_set_original_developer_skips_when_already_set(task_setup: dict) -> None:
     svc = task_setup["svc"]
     task = MagicMock()
-    task.quick_context = "original_developer:already-set"
+    task.orchestration_markers = {"original_developer": "already-set"}
     task.assigned_to = uuid4()
     agent = MagicMock(role=AgentRole.QA, id=uuid4())
-    # Should not change quick_context
-    before = task.quick_context
+    # An existing original_developer marker must not be overwritten.
+    before = dict(task.orchestration_markers)
     svc._set_original_developer_context(task, agent)
-    assert task.quick_context == before
+    assert task.orchestration_markers == before
 
 
 def test_set_original_developer_skips_when_no_role(task_setup: dict) -> None:
@@ -731,10 +733,10 @@ def test_record_documenter_context_skips_when_already(task_setup: dict) -> None:
     svc = task_setup["svc"]
     task = MagicMock()
     task.assigned_to = uuid4()
-    task.quick_context = "documenter:something"
-    before = task.quick_context
+    task.orchestration_markers = {"documenter": "something"}
+    before = dict(task.orchestration_markers)
     svc._record_documenter_context(task)
-    assert task.quick_context == before
+    assert task.orchestration_markers == before
 
 
 def test_record_documenter_context_appends(task_setup: dict) -> None:
@@ -743,9 +745,10 @@ def test_record_documenter_context_appends(task_setup: dict) -> None:
     task = MagicMock()
     task.assigned_to = aid
     task.quick_context = "existing"
+    task.orchestration_markers = None
     svc._record_documenter_context(task)
-    assert "documenter:" in task.quick_context
-    assert "existing" in task.quick_context
+    assert markers.get_documenter(task) == str(aid)
+    assert task.quick_context == "existing"  # human field untouched
 
 
 def test_record_documenter_context_first_entry(task_setup: dict) -> None:
@@ -753,9 +756,9 @@ def test_record_documenter_context_first_entry(task_setup: dict) -> None:
     aid = uuid4()
     task = MagicMock()
     task.assigned_to = aid
-    task.quick_context = None
+    task.orchestration_markers = None
     svc._record_documenter_context(task)
-    assert "documenter:" in task.quick_context
+    assert markers.get_documenter(task) == str(aid)
 
 
 def test_record_completion_notes_skips_empty(task_setup: dict) -> None:
@@ -1158,16 +1161,15 @@ def test_validate_not_self_review_qa_with_different_dev(task_setup: dict) -> Non
 
 
 def test_set_original_developer_records_when_different(task_setup: dict) -> None:
-    """Cover line 889: sets quick_context when assigned_to != agent.id."""
+    """Sets the original_developer marker when assigned_to != agent.id."""
     svc = task_setup["svc"]
     task = MagicMock()
-    task.quick_context = ""
+    task.orchestration_markers = None
     other_id = uuid4()
     task.assigned_to = other_id
     agent = MagicMock(role=AgentRole.QA, id=uuid4())
     svc._set_original_developer_context(task, agent)
-    assert "original_developer:" in task.quick_context
-    assert str(other_id) in task.quick_context
+    assert markers.get_original_developer(task) == str(other_id)
 
 
 @pytest.mark.asyncio

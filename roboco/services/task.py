@@ -32,6 +32,8 @@ from roboco.enforcement import (
     validate_task_transition,
 )
 from roboco.events import Event, EventType, get_event_bus
+from roboco.foundation.policy.content import markers
+from roboco.foundation.policy.content.validators import ContentValidationError
 from roboco.models.base import (
     AgentRole,
     AgentStatus,
@@ -54,6 +56,7 @@ from roboco.services.base import (
     UnauthorizedError,
     ValidationError,
 )
+from roboco.services.content_notes import apply_structured_note
 from roboco.utils.converters import require_uuid, to_python_uuid
 
 if TYPE_CHECKING:
@@ -301,37 +304,19 @@ def _get_valid_claim_statuses(
     return statuses
 
 
-def extract_original_developer(quick_context: str | None) -> str | None:
+def extract_original_developer(task: Any) -> str | None:
+    """The original-developer UUID from a task's orchestration markers.
+
+    Stored as the ``original_developer`` marker — migration 041 moved it out of
+    the human ``quick_context`` blob into ``orchestration_markers``. Returns the
+    value only when it is a well-formed UUID; anything else reads as absent.
     """
-    Safely extract original developer ID from quick_context.
-
-    The quick_context stores original developer as the "original_developer:
-    {uuid}" entry on its own line. Other entries (doc_notes, documenter,
-    etc.) may be appended on subsequent lines, so scan line-by-line rather
-    than assuming the field is the first and only token.
-
-    Args:
-        quick_context: The task's quick_context field value
-
-    Returns:
-        UUID string of original developer, or None if not found/invalid
-    """
-    if not quick_context:
+    dev_id = markers.get_original_developer(task)
+    if not dev_id:
         return None
-
-    prefix = "original_developer:"
-    for raw in quick_context.splitlines():
-        line = raw.strip()
-        if not line.startswith(prefix):
-            continue
-        dev_id = line[len(prefix) :].strip()
-        if len(dev_id) == _UUID_LENGTH and dev_id.count("-") == _UUID_HYPHEN_COUNT:
-            return dev_id
-        return None
+    if len(dev_id) == _UUID_LENGTH and dev_id.count("-") == _UUID_HYPHEN_COUNT:
+        return dev_id
     return None
-
-
-_REQUIRED_CELLS_PREFIX = "required_cells:"
 
 
 def _normalize_cell(value: object) -> str:
@@ -340,29 +325,20 @@ def _normalize_cell(value: object) -> str:
     return raw.replace("/", "_").replace("-", "_").replace(" ", "")
 
 
-def extract_required_cells(quick_context: str | None) -> list[str]:
-    """Cells the brief explicitly named, from a ``required_cells:`` marker line.
+def extract_required_cells(task: Any) -> list[str]:
+    """Cells the brief explicitly named, from the ``required_cells`` marker.
 
     The Main PM must create a subtask for each named cell (it may not silently
-    collapse one into a neighbour — see commit 60de3499). The marker is a single
-    line, e.g. ``required_cells: backend, frontend, ux_ui``. Absent → no
-    constraint (the gate is inert). Returns normalized, de-duplicated cells in
-    marker order.
+    collapse one into a neighbour — see commit 60de3499). Stored in
+    ``orchestration_markers`` (migration 041). Absent → no constraint (the gate
+    is inert). Returns normalized, de-duplicated cells in marker order.
     """
-    if not quick_context:
-        return []
-    for raw in quick_context.splitlines():
-        line = raw.strip()
-        if not line.lower().startswith(_REQUIRED_CELLS_PREFIX):
-            continue
-        body = line[len(_REQUIRED_CELLS_PREFIX) :]
-        seen: list[str] = []
-        for tok in body.split(","):
-            cell = _normalize_cell(tok)
-            if cell and cell not in seen:
-                seen.append(cell)
-        return seen
-    return []
+    seen: list[str] = []
+    for tok in markers.get_required_cells(task):
+        cell = _normalize_cell(tok)
+        if cell and cell not in seen:
+            seen.append(cell)
+    return seen
 
 
 # Review-task sources. The inbound-PR reviewer handles both external/fork PRs
@@ -377,40 +353,25 @@ PR_REVIEW_SOURCES = ("external_pr", "internal_pr")
 # Approve-&-Starts it; the loop itself never starts/approves/merges it.
 SELF_HEAL_SOURCE = "self_heal"
 
-_SELF_HEAL_FP_PREFIX = "self_heal_fp="
+def extract_self_heal_fingerprint(task: Any) -> str | None:
+    """The self-heal dedupe fingerprint from a task's markers, or None.
 
-
-def extract_self_heal_fingerprint(quick_context: str | None) -> str | None:
-    """The ``self_heal_fp=<fp>`` marker from quick_context, or None.
-
-    The per-signal dedupe key carried on a self-heal task, so the loop can tell
-    a regression already has an open fix task without a schema change.
+    The per-signal dedupe key carried on a self-heal task (in
+    ``orchestration_markers`` after migration 041), so the loop can tell a
+    regression already has an open fix task.
     """
-    for token in (quick_context or "").split():
-        if token.startswith(_SELF_HEAL_FP_PREFIX):
-            return token[len(_SELF_HEAL_FP_PREFIX) :] or None
-    return None
+    return markers.get_self_heal_fingerprint(task)
 
 
-_SUPERSEDE_MARKER_PREFIX = "external_pr_supersede"
+def supersede_marker_line(task: Any) -> str:
+    """The supersede marker value, or "" if none.
 
-
-def supersede_marker_line(quick_context: str | None) -> str:
-    """Return the supersede marker line from a (multi-writer) quick_context.
-
-    The supersede marker (``external_pr_supersede pr={n} review={uuid}`` plus a
-    ``closed=1`` token once the contributor PR is retired) is always written on
-    its own line, while ``escalate_to_ceo`` / ``ceo_approve`` append free-form
-    CEO notes on later lines. Dedup and close-state checks therefore parse THIS
-    line rather than substring-scanning the whole field — a CEO note that
-    happened to contain ``closed=1`` or ``pr=N review=`` must not be mistaken
-    for the marker (mirrors :func:`extract_original_developer`).
+    ``pr={n} review={uuid}`` plus a ``closed=1`` token once the contributor PR is
+    retired. Stored in ``orchestration_markers`` (migration 041); dedup and
+    close-state checks parse this value (``needle in ...`` / ``"closed=1" in
+    ....split()``) exactly as before.
     """
-    for raw in (quick_context or "").splitlines():
-        line = raw.strip()
-        if line.startswith(_SUPERSEDE_MARKER_PREFIX):
-            return line
-    return ""
+    return markers.get_external_pr_supersede(task) or ""
 
 
 class TaskService(BaseService):
@@ -705,21 +666,20 @@ class TaskService(BaseService):
           open a fresh review for the change).
         """
         result = await self.session.execute(
-            select(TaskTable.quick_context).where(
+            select(TaskTable.orchestration_markers).where(
                 TaskTable.project_id == project_id,
                 TaskTable.source.in_(PR_REVIEW_SOURCES),
                 TaskTable.pr_number == pr_number,
             )
         )
-        contexts = result.scalars().all()
-        if not contexts:
+        marker_rows = result.scalars().all()
+        if not marker_rows:
             return False
         if not head_sha:
             return True
-        marker = f"external_pr_head={head_sha}"
-        for qc in contexts:
-            text = qc or ""
-            if marker in text or "external_pr_head=" not in text:
+        for om in marker_rows:
+            stored = (om or {}).get("external_pr_head")
+            if not stored or stored == head_sha:
                 return True
         return False
 
@@ -787,7 +747,7 @@ class TaskService(BaseService):
         # Record the reviewed head commit so a later push (new SHA) re-reviews,
         # while an unchanged PR is skipped (see external_review_task_exists).
         if head_sha:
-            task.quick_context = f"external_pr_head={head_sha}"
+            markers.set_external_pr_head(task, head_sha)
         await self.session.flush()
         return task
 
@@ -842,7 +802,7 @@ class TaskService(BaseService):
         return [
             t
             for t in result.scalars().all()
-            if "dismissed=1" not in (t.quick_context or "").split()
+            if not markers.is_dismissed(t)
         ]
 
     async def list_external_pr_reviews(self) -> list[TaskTable]:
@@ -873,7 +833,7 @@ class TaskService(BaseService):
         return [
             t
             for t in result.scalars().all()
-            if "dismissed=1" not in (t.quick_context or "").split()
+            if not markers.is_dismissed(t)
         ]
 
     async def dismiss_external_pr_review(self, task_id: UUID) -> TaskTable | None:
@@ -886,8 +846,8 @@ class TaskService(BaseService):
         task = await self.get(task_id)
         if task is None or getattr(task, "source", "") not in PR_REVIEW_SOURCES:
             return None
-        if "dismissed=1" not in (task.quick_context or "").split():
-            task.quick_context = f"{task.quick_context or ''} dismissed=1".strip()
+        if not markers.is_dismissed(task):
+            markers.mark_dismissed(task)
         await self.session.flush()
         return task
 
@@ -1010,8 +970,8 @@ class TaskService(BaseService):
         # rule), not the default branch. The marker links back to the review +
         # contributor PR for dedup and close-on-land (no parent link needed).
         umbrella.branch_name = branch_name
-        umbrella.quick_context = (
-            f"external_pr_supersede pr={pr_number} review={review_task_id}"
+        markers.set_external_pr_supersede(
+            umbrella, f"pr={pr_number} review={review_task_id}"
         )
         await self.session.flush()
         self.log.info(
@@ -1040,7 +1000,7 @@ class TaskService(BaseService):
         )
         needle = f"pr={pr_number} review="
         for task in result.scalars().all():
-            if needle in supersede_marker_line(task.quick_context):
+            if needle in supersede_marker_line(task):
                 return task
         return None
 
@@ -1063,7 +1023,7 @@ class TaskService(BaseService):
         )
         pending: list[TaskTable] = []
         for task in result.scalars().all():
-            if "closed=1" in supersede_marker_line(task.quick_context).split():
+            if "closed=1" in supersede_marker_line(task).split():
                 continue
             if not await self._supersede_replacement_landed(cast("UUID", task.id)):
                 continue
@@ -1106,15 +1066,9 @@ class TaskService(BaseService):
         task = await self.get(task_id)
         if task is None:
             return
-        lines = (task.quick_context or "").splitlines()
-        for i, raw in enumerate(lines):
-            if raw.strip().startswith(_SUPERSEDE_MARKER_PREFIX):
-                if "closed=1" not in raw.split():
-                    lines[i] = f"{raw} closed=1"
-                break
-        else:
-            lines.append(f"{_SUPERSEDE_MARKER_PREFIX} closed=1")
-        task.quick_context = "\n".join(lines)
+        current = markers.get_external_pr_supersede(task) or ""
+        if "closed=1" not in current.split():
+            markers.set_external_pr_supersede(task, f"{current} closed=1".strip())
         await self.session.flush()
 
     async def _inherit_parent_session(
@@ -1670,7 +1624,7 @@ class TaskService(BaseService):
         role = agent.role.value if hasattr(agent.role, "value") else str(agent.role)
         if role not in ("qa", "documenter"):
             return None
-        original_dev = extract_original_developer(task.quick_context)
+        original_dev = extract_original_developer(task)
         if original_dev and original_dev == str(agent_id):
             return "cannot review your own work (self-review)"
         return None
@@ -1689,14 +1643,13 @@ class TaskService(BaseService):
         role = agent.role.value if hasattr(agent.role, "value") else str(agent.role)
         if role not in ("qa", "documenter"):
             return
-        existing_context = task.quick_context or ""
-        if "original_developer:" in existing_context:
+        if markers.get_original_developer(task):
             return
 
         # Only set original_developer if it's a DIFFERENT agent than the one claiming
         # This prevents blocking QA/Documenter when PM assigns directly to them
         if task.assigned_to and str(task.assigned_to) != str(agent.id):
-            task.quick_context = f"original_developer:{task.assigned_to}"
+            markers.set_original_developer(task, task.assigned_to)
 
     _CLAIMABLE_STATUSES: ClassVar[set[TaskStatus]] = {
         TaskStatus.PENDING,
@@ -2469,7 +2422,7 @@ class TaskService(BaseService):
     async def _index_qa_review_background(
         self,
         task_id: UUID,
-        quick_context: str | None,
+        original_developer: str | None,
         passed: bool,
         qa_notes: str,
         qa_agent_id: UUID | None,
@@ -2480,7 +2433,7 @@ class TaskService(BaseService):
 
         try:
             optimal = await get_optimal_service()
-            original_dev = extract_original_developer(quick_context)
+            original_dev = original_developer
 
             await optimal.record_review(
                 IndexReviewParams(
@@ -3391,7 +3344,7 @@ class TaskService(BaseService):
         # record for self-review prevention (QA can't review own work).
         original_dev = str(task.assigned_to) if task.assigned_to else None
         if original_dev:
-            task.quick_context = f"original_developer:{original_dev}"
+            markers.set_original_developer(task, original_dev)
 
         # Capture the developer's UUID BEFORE clearing claimed_by so the
         # `task.awaiting_qa` audit row is attributed to the dev who
@@ -3481,7 +3434,7 @@ class TaskService(BaseService):
         bg_task = asyncio.create_task(
             self._index_qa_review_background(
                 require_uuid(task.id),
-                task.quick_context,
+                extract_original_developer(task),
                 True,
                 notes or "Passed QA review",
                 to_python_uuid(qa_agent_id),
@@ -3533,7 +3486,7 @@ class TaskService(BaseService):
         qa_agent_id = task.assigned_to
 
         # Reassign to original developer so they can work on revisions
-        original_dev = extract_original_developer(task.quick_context)
+        original_dev = extract_original_developer(task)
         if original_dev:
             task.assigned_to = cast("Any", UUID(original_dev))
             task.claimed_by = cast("Any", UUID(original_dev))
@@ -3557,7 +3510,7 @@ class TaskService(BaseService):
         review_task = asyncio.create_task(
             self._index_qa_review_background(
                 require_uuid(task.id),
-                task.quick_context,
+                extract_original_developer(task),
                 False,
                 notes,
                 to_python_uuid(qa_agent_id),
@@ -3665,27 +3618,29 @@ class TaskService(BaseService):
 
     @staticmethod
     def _record_doc_notes(task: TaskTable, doc_notes: str | None) -> None:
-        """Append doc_notes into quick_context if supplied."""
+        """Capture the documenter's note as a structured DocNote (best-effort).
+
+        Routes through the content chokepoint so it lands in the ``doc_notes``
+        mirror + ``notes_structured``. Skips if a richer DocNote already exists
+        (the gateway ``note`` tool) or the text is too trivial to validate.
+        """
         if not doc_notes:
             return
-        task.quick_context = _append_capped(
-            task.quick_context, f"doc_notes:{doc_notes}"
-        )
+        if (task.notes_structured or {}).get("doc"):
+            return
+        try:
+            apply_structured_note(task, "doc", {"summary": doc_notes})
+        except ContentValidationError:
+            return
 
     @staticmethod
     def _record_documenter_context(task: TaskTable) -> None:
-        """Stamp documenter id into quick_context if missing."""
+        """Stamp the documenter id into orchestration markers if missing."""
         if not task.assigned_to:
             return
-        existing_context = task.quick_context or ""
-        if "documenter:" in existing_context:
+        if markers.get_documenter(task):
             return
-        doc_context = f"documenter:{task.assigned_to}"
-        task.quick_context = (
-            f"{existing_context}\n{doc_context}".strip()
-            if existing_context
-            else doc_context
-        )
+        markers.set_documenter(task, task.assigned_to)
 
     async def _resolve_pm_for_review(self, task: TaskTable) -> UUID | None:
         """Walk up the parent chain to find the PM who owns this work.
@@ -3800,17 +3755,6 @@ class TaskService(BaseService):
         task.pr_created = True
         task.pr_number = pr_number
         task.pr_url = pr_url
-
-        # Store developer who created PR in quick_context
-        if task.assigned_to:
-            existing_context = task.quick_context or ""
-            if "pr_author:" not in existing_context:
-                pr_context = f"pr_author:{task.assigned_to}"
-                task.quick_context = (
-                    f"{existing_context}\n{pr_context}".strip()
-                    if existing_context
-                    else pr_context
-                )
 
         # Check if BOTH docs_complete AND pr_created are now true
         from roboco.enforcement.task_lifecycle import check_parallel_completion
@@ -4620,7 +4564,7 @@ class TaskService(BaseService):
                 task_id=str(task_id),
             )
         else:
-            original_dev = extract_original_developer(task.quick_context)
+            original_dev = extract_original_developer(task)
             if original_dev:
                 task.assigned_to = cast("Any", UUID(original_dev))
                 task.claimed_by = cast("Any", UUID(original_dev))
@@ -5335,7 +5279,7 @@ class TaskService(BaseService):
         parent = await self.get(parent_task_id)
         if parent is None:
             return []
-        required = extract_required_cells(parent.quick_context)
+        required = extract_required_cells(parent)
         if not required:
             return []
         children = await self.get_subtasks(parent_task_id)
@@ -5548,7 +5492,7 @@ class TaskService(BaseService):
 
         # QA / Documenter cannot claim what they themselves developed.
         if agent.role in (AgentRole.QA, AgentRole.DOCUMENTER):
-            original_dev = extract_original_developer(task.quick_context)
+            original_dev = extract_original_developer(task)
             if original_dev and str(agent.agent_id) == original_dev:
                 raise UnauthorizedError(
                     action="claim",
@@ -5670,7 +5614,7 @@ class TaskService(BaseService):
                 reason="Only documenters can mark documentation as complete",
             )
 
-        original_dev = extract_original_developer(task.quick_context)
+        original_dev = extract_original_developer(task)
         if original_dev and str(agent.agent_id) == original_dev:
             from roboco.services.audit import get_audit_service
 

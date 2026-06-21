@@ -8157,8 +8157,6 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
             - original_developer if pr_created=False (tracked in
               quick_context as "original_developer:<uuid>")
         """
-        from roboco.services.task import extract_original_developer
-
         # Fetch both `awaiting_documentation` and `claimed` because the
         # doc's claim transitions status from awaiting_documentation →
         # claimed. Without including `claimed` we'd miss tasks where doc
@@ -8170,7 +8168,7 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
         for task in tasks:
             if self._is_task_handled_this_tick(task.get("id")):
                 continue
-            await self._doc_dispatch_one(client, task, extract_original_developer)
+            await self._doc_dispatch_one(client, task)
 
     async def _auto_assign_doc(
         self, client: httpx.AsyncClient, task: dict[str, Any], team: str
@@ -8201,15 +8199,13 @@ Never `commit`, never write code, never run `git`. PMs coordinate.
         self,
         client: httpx.AsyncClient,
         task: dict[str, Any],
-        extract_original_developer: Any,
     ) -> None:
         """Process a single task for `_dispatch_doc_work`."""
         team = task.get("team")
         if team not in ["backend", "frontend", "ux_ui"]:
             return
 
-        quick_context = task.get("quick_context") or ""
-        dev_uuid = extract_original_developer(quick_context)
+        dev_uuid = (task.get("orchestration_markers") or {}).get("original_developer")
         status = task.get("status")
 
         # Only consider `claimed` tasks actually in the doc/PR parallel

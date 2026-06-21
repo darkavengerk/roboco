@@ -33,20 +33,24 @@ DISMISSED = "dismissed"
 
 
 def get_marker(task: HasMarkers, key: str, default: Any = None) -> Any:
-    return (task.orchestration_markers or {}).get(key, default)
+    om = getattr(task, "orchestration_markers", None)
+    if not isinstance(om, dict):
+        return default
+    return om.get(key, default)
 
 
 def set_marker(task: HasMarkers, key: str, value: Any) -> None:
-    markers = dict(task.orchestration_markers or {})
+    om = getattr(task, "orchestration_markers", None)
+    markers = dict(om) if isinstance(om, dict) else {}
     markers[key] = value
     task.orchestration_markers = markers
 
 
 def clear_marker(task: HasMarkers, key: str) -> None:
-    current = task.orchestration_markers or {}
-    if key not in current:
+    om = getattr(task, "orchestration_markers", None)
+    if not isinstance(om, dict) or key not in om:
         return
-    markers = dict(current)
+    markers = dict(om)
     del markers[key]
     task.orchestration_markers = markers or None
 

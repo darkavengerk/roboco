@@ -188,7 +188,7 @@ async def test_claim_task_for_agent_self_review_rejected(
     svc = task_setup["svc"]
     qa_id = uuid4()
     task = await svc.create(_req(task_setup))
-    task.quick_context = f"original_developer:{qa_id}"
+    task.orchestration_markers = {"original_developer": str(qa_id)}
     await db_session.flush()
     agent_ctx = _ctx(qa_id, AgentRole.QA)
     perms = _Permissions(can_claim=True)
@@ -423,7 +423,7 @@ async def test_docs_complete_for_task_self_documentation_blocked(
     svc = task_setup["svc"]
     doc_id = task_setup["agent_id"]
     task = await svc.create(_req(task_setup))
-    task.quick_context = f"original_developer:{doc_id}"
+    task.orchestration_markers = {"original_developer": str(doc_id)}
     await db_session.flush()
     agent_ctx = _ctx(doc_id, AgentRole.DOCUMENTER)
     audit_mock = AsyncMock()

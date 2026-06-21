@@ -135,7 +135,7 @@ async def test_ingest_creates_review_task(db_session: AsyncSession) -> None:
     assert task.task_type == TaskType.CODE
     assert task.confirmed_by_human is False
     assert task.status == TaskStatus.PENDING
-    assert task.quick_context == "external_pr_head=abc123"
+    assert task.orchestration_markers == {"external_pr_head": "abc123"}
 
 
 @pytest.mark.asyncio
@@ -187,7 +187,7 @@ async def test_ingest_new_head_rereviews(db_session: AsyncSession) -> None:
     await db_session.flush()
 
     assert rereview is not None
-    assert rereview.quick_context == "external_pr_head=def456"
+    assert rereview.orchestration_markers == {"external_pr_head": "def456"}
     reviews = await svc.list_external_pr_reviews()
     matching = [t for t in reviews if t.pr_number == EXTERNAL_PR]
     assert len(matching) == REVIEWS_AFTER_REREVIEW
@@ -376,8 +376,12 @@ async def test_find_supersede_umbrella_no_prefix_false_match(
     assert five is not None
     assert fifty is not None
     assert UUID(str(five.id)) != UUID(str(fifty.id))
-    assert "pr=5 review=" in (five.quick_context or "")
-    assert "pr=50 review=" in (fifty.quick_context or "")
+    assert "pr=5 review=" in (five.orchestration_markers or {}).get(
+        "external_pr_supersede", ""
+    )
+    assert "pr=50 review=" in (fifty.orchestration_markers or {}).get(
+        "external_pr_supersede", ""
+    )
 
 
 # ---------------------------------------------------------------------------

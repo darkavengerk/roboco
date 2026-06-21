@@ -1361,7 +1361,7 @@ async def pass_qa(
 
     # QA cannot review their own tasks (prevent self-review)
     # Check against original developer stored in quick_context, not current assigned_to
-    original_dev = extract_original_developer(task.quick_context)
+    original_dev = extract_original_developer(task)
 
     if original_dev and str(agent.agent_id) == original_dev:
         audit = get_audit_service()
@@ -1442,7 +1442,7 @@ async def fail_qa(
 
     # QA cannot review their own tasks (prevent self-review)
     # Check against original developer stored in quick_context, not current assigned_to
-    original_dev = extract_original_developer(task.quick_context)
+    original_dev = extract_original_developer(task)
 
     if original_dev and str(agent.agent_id) == original_dev:
         raise HTTPException(

@@ -2050,7 +2050,7 @@ async def test_pass_qa_self_review_forbidden(qa_client: dict) -> None:
     task = _seed_task_qa(
         qa_client,
         pr_number=42,
-        quick_context=f"original_developer:{qa_client['agent'].id}",
+        orchestration_markers={"original_developer": str(qa_client["agent"].id)},
     )
     await qa_client["db"].flush()
     response = await qa_client["client"].post(
@@ -2151,7 +2151,7 @@ async def test_fail_qa_self_review_forbidden(qa_client: dict) -> None:
     """QA cannot fail-QA on a task where they were the dev."""
     task = _seed_task_qa(
         qa_client,
-        quick_context=f"original_developer:{qa_client['agent'].id}",
+        orchestration_markers={"original_developer": str(qa_client["agent"].id)},
     )
     await qa_client["db"].flush()
     response = await qa_client["client"].post(

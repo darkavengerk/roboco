@@ -527,7 +527,7 @@ async def test_fail_qa_reassigns_to_original_developer(
     dev_id = task_setup["agent_id"]
     task = await svc.create(_req(task_setup))
     task.status = TaskStatus.AWAITING_QA
-    task.quick_context = f"original_developer:{dev_id}"
+    task.orchestration_markers = {"original_developer": str(dev_id)}
     await db_session.flush()
     failed = await svc.fail_qa(task.id, notes="missing tests")
     assert failed is not None
@@ -597,7 +597,7 @@ async def test_ceo_reject_reassigns_to_original_dev(
     dev_id = task_setup["agent_id"]
     task = await svc.create(_req(task_setup))
     task.status = TaskStatus.AWAITING_CEO_APPROVAL
-    task.quick_context = f"original_developer:{dev_id}"
+    task.orchestration_markers = {"original_developer": str(dev_id)}
     await db_session.flush()
     rejected = await svc.ceo_reject(task.id, reason="re-do auth flow")
     assert rejected is not None
@@ -695,7 +695,7 @@ async def test_ceo_reject_writes_handoff_journal(
 
     task = await svc.create(_req(task_setup))
     task.status = TaskStatus.AWAITING_CEO_APPROVAL
-    task.quick_context = f"original_developer:{task_setup['agent_id']}"
+    task.orchestration_markers = {"original_developer": str(task_setup["agent_id"])}
     await db_session.flush()
 
     reason = "AC9/AC10 totals must include cache tokens"
@@ -919,7 +919,7 @@ async def test_claim_rejects_self_review_for_qa(
     task = await svc.create(_req(task_setup))
     task.status = TaskStatus.AWAITING_QA
     task.branch_name = "feature/backend/x"
-    task.quick_context = f"original_developer:{qa_agent.id}"
+    task.orchestration_markers = {"original_developer": str(qa_agent.id)}
     await db_session.flush()
     out = await svc.claim(task.id, qa_agent.id)
     assert out is None

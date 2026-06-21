@@ -21,6 +21,7 @@ import structlog
 
 from roboco.exceptions import MergeConflictError
 from roboco.foundation.policy import lifecycle as spec_module
+from roboco.foundation.policy.content import markers
 from roboco.services.gateway.choreographer._verb_runner import VerbRunner
 from roboco.services.gateway.claim_guards import (
     already_active_guard,
@@ -185,14 +186,7 @@ def _extract_original_developer(task: Any) -> str | None:
     spec's self-review precondition (a documenter who is also the
     original developer cannot self-doc).
     """
-    qc = getattr(task, "quick_context", None) or ""
-    marker = "original_developer:"
-    if marker not in qc:
-        return None
-    tail = qc.split(marker, 1)[1].strip()
-    if not tail:
-        return None
-    return tail.split()[0] or None
+    return markers.get_original_developer(task)
 
 
 @dataclass(frozen=True)

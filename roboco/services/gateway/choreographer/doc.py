@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 from roboco.config import settings
 from roboco.foundation.policy import lifecycle as spec_module
 from roboco.foundation.policy import tracing as _tr
+from roboco.foundation.policy.content import markers
 from roboco.models.task import DocRef
 from roboco.services.gateway.envelope import Envelope
 from roboco.services.gateway.evidence_builder import build_evidence_for_task
@@ -86,14 +87,7 @@ def _extract_original_developer(task: Any) -> str | None:
     the spec's self-review block reads ``ctx.original_developer_slug``
     and the mixin builds the Context.
     """
-    qc = getattr(task, "quick_context", None) or ""
-    marker = "original_developer:"
-    if marker not in qc:
-        return None
-    tail = qc.split(marker, 1)[1].strip()
-    if not tail:
-        return None
-    return tail.split()[0] or None
+    return markers.get_original_developer(task)
 
 
 class DocMixin(_Base):

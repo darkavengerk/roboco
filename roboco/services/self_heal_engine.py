@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, cast
 
 from roboco.config import settings
 from roboco.foundation import identity as _foundation
+from roboco.foundation.policy.content import markers
 from roboco.models.base import Complexity, TaskNature, TaskStatus, TaskType, Team
 from roboco.services.base import BaseService
 from roboco.services.notification import NotificationService
@@ -143,7 +144,7 @@ class SelfHealEngine(BaseService):
         open_tasks = await task_svc.list_open_self_heal_tasks()
         open_fps: set[str] = set()
         for existing in open_tasks:
-            fp = extract_self_heal_fingerprint(existing.quick_context)
+            fp = extract_self_heal_fingerprint(existing)
             if fp:
                 open_fps.add(fp)
         open_count = len(open_tasks)
@@ -196,7 +197,7 @@ class SelfHealEngine(BaseService):
             )
             # Carry the fingerprint so a later cycle sees this regression already
             # has an open fix task (parsed by extract_self_heal_fingerprint).
-            task.quick_context = f"self_heal_fp={obs.fingerprint}"
+            markers.set_self_heal_fingerprint(task, obs.fingerprint)
             await self.session.flush()
             open_fps.add(obs.fingerprint)
             open_count += 1

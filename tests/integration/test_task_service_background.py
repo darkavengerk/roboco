@@ -574,7 +574,7 @@ async def test_index_qa_review_calls_record_review(
     dev_id = uuid4()
     await svc._index_qa_review_background(
         uuid4(),
-        f"original_developer:{dev_id}",
+        str(dev_id),
         passed=True,
         qa_notes="LGTM",
         qa_agent_id=uuid4(),

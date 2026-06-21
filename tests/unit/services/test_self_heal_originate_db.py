@@ -156,7 +156,7 @@ async def test_originate_creates_pending_main_pm_assigned_task(
     assert task.team == Team.MAIN_PM
     assert task.source == "self_heal"
     assert task.acceptance_criteria  # non-empty (AC-guardrail)
-    assert "self_heal_fp=" in (task.quick_context or "")
+    assert (task.orchestration_markers or {}).get("self_heal_fp")
 
 
 @pytest.mark.asyncio
