@@ -21,6 +21,7 @@ import structlog
 from roboco.config import settings
 from roboco.exceptions import GitError
 from roboco.foundation.policy import communications as _comms
+from roboco.foundation.policy.content.validators import reject_trivial
 from roboco.foundation.policy.journaling import Scope as _Scope
 from roboco.services.gateway.commit_validator import validate_commit_message
 from roboco.services.gateway.envelope import Envelope
@@ -332,6 +333,27 @@ class ContentActions:
             return None
         return _not_active_claimant(task.id)
 
+    @staticmethod
+    def _reject_soup(value: str, *, field: str, min_chars: int = 3) -> Envelope | None:
+        """Universal anti-soup guard for agent free-text.
+
+        Returns a remediation Envelope (never a raw 422 — a 422 at the route
+        trips the do-server circuit breaker) when ``value`` is empty, too short,
+        or a placeholder/filler token, so soup lands NOWHERE. ``None`` = clean.
+        """
+        try:
+            reject_trivial(value, field=field, min_chars=min_chars)
+        except ValueError as exc:
+            return Envelope.invalid_state(
+                message=str(exc),
+                remediate=(
+                    f"write a substantive {field} (>={min_chars} chars, no filler "
+                    "like 'asdf'/'wip'/'tbd'/'...'); state what actually happened."
+                ),
+                context_briefing={},
+            )
+        return None
+
     async def commit(
         self,
         *,
@@ -486,6 +508,8 @@ class ContentActions:
         is taken from ``structured["title"]`` when present, otherwise
         from the first line of ``text``.
         """
+        if rej := self._reject_soup(text, field="note", min_chars=8):
+            return rej
         if scope not in _VALID_NOTE_SCOPES:
             return Envelope.invalid_state(
                 message=f"invalid scope {scope!r}",
@@ -538,6 +562,12 @@ class ContentActions:
         proposal. On CEO approval the system provisions a repo per target cell,
         registers the projects, and seeds the first Main-PM task.
         """
+        for _pf, _pv in (
+            ("problem", problem),
+            ("proposed_solution", proposed_solution),
+        ):
+            if rej := self._reject_soup(_pv, field=_pf, min_chars=15):
+                return rej
         from pydantic import ValidationError as PydanticValidationError
 
         from roboco.models.pitch import PitchCreate
@@ -601,6 +631,8 @@ class ContentActions:
         `ChannelAccessDeniedError`; we convert it into a friendly
         `not_authorized` Envelope listing the agent's writable channels.
         """
+        if rej := self._reject_soup(text, field="message", min_chars=2):
+            return rej
         from roboco.enforcement.channel_access import (
             ChannelAccessDeniedError,
             get_agent_channels,
@@ -661,6 +693,8 @@ class ContentActions:
         skill: str | None = None,
     ) -> Envelope:
         """A2A direct message. Requires task_id (active or explicit)."""
+        if rej := self._reject_soup(text, field="message", min_chars=2):
+            return rej
         # Spec §5.5: auditor is silent — defense-in-depth runtime guard.
         # See say() above for rationale. Mirrored here because dm() is
         # the other channel through which the auditor could "speak".
@@ -740,6 +774,8 @@ class ContentActions:
         """
         from roboco.models import NotificationPriority
 
+        if rej := self._reject_soup(text, field="notification", min_chars=5):
+            return rej
         if priority not in _VALID_NOTIFY_PRIORITIES:
             return Envelope.invalid_state(
                 message=f"invalid priority {priority!r}",
@@ -972,6 +1008,8 @@ class ContentActions:
         the single-claimant guard so a reaped/handed-off assignee cannot
         keep writing.
         """
+        if rej := self._reject_soup(message, field="progress update", min_chars=5):
+            return rej
         t = await self.task.get(task_id)
         if t is None:
             return Envelope.not_found(message=f"task {task_id} not found")

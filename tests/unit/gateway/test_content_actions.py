@@ -678,7 +678,7 @@ async def test_notify_explicit_task_not_found_rejected() -> None:
     env = await ca.notify(
         agent_id=agent_id,
         target="be-dev-1",
-        text="hi",
+        text="Please review the assembled PR before merge.",
         priority="normal",
         task_id=uuid4(),
     )
@@ -803,7 +803,10 @@ async def test_progress_unknown_plan_step_invalid_state_lists_valid() -> None:
     actions = ContentActions(_make_deps(task=task))
 
     env = await actions.progress(
-        agent_id=agent_id, task_id=t.id, message="?", plan_step="bogus"
+        agent_id=agent_id,
+        task_id=t.id,
+        message="Finished the auth refactor step.",
+        plan_step="bogus",
     )
     body = env.as_dict()
     assert body["error"] == "invalid_state", body
