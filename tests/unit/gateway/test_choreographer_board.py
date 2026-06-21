@@ -131,7 +131,9 @@ async def test_board_escalate_to_ceo_blocks_wrong_state() -> None:
     deps = _make_deps(task=task_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_to_ceo(agent_id, task_id, reason="x")
+    env = await c.escalate_to_ceo(
+        agent_id, task_id, reason="escalating to the CEO for sign-off"
+    )
     body = env.as_dict()
     assert body["error"] == "invalid_state"
     assert "awaiting_pm_review" in body["message"]
@@ -173,7 +175,9 @@ async def test_board_escalate_to_ceo_blocks_disallowed_role() -> None:
     deps = _make_deps(task=task_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_to_ceo(agent_id, task_id, reason="x")
+    env = await c.escalate_to_ceo(
+        agent_id, task_id, reason="escalating to the CEO for sign-off"
+    )
     body = env.as_dict()
     assert body["error"] == "not_authorized"
     assert "qa" in body["message"]
@@ -194,7 +198,9 @@ async def test_board_escalate_to_ceo_requires_journal_decision() -> None:
     deps = _make_deps(task=task_svc, journal=journal_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_to_ceo(agent_id, task_id, reason="x")
+    env = await c.escalate_to_ceo(
+        agent_id, task_id, reason="escalating to the CEO for sign-off"
+    )
     body = env.as_dict()
     assert body["error"] == "tracing_gap"
     assert "journal:decision" in body["missing"]
@@ -210,7 +216,9 @@ async def test_board_escalate_to_ceo_returns_not_found_when_task_missing() -> No
     deps = _make_deps(task=task_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_to_ceo(agent_id, task_id, reason="x")
+    env = await c.escalate_to_ceo(
+        agent_id, task_id, reason="escalating to the CEO for sign-off"
+    )
     body = env.as_dict()
     assert body["error"] == "not_found"
     task_svc.escalate_to_ceo.assert_not_awaited()

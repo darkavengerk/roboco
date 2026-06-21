@@ -22,6 +22,7 @@ import structlog
 from roboco.exceptions import MergeConflictError
 from roboco.foundation.policy import lifecycle as spec_module
 from roboco.foundation.policy.content import markers
+from roboco.foundation.policy.content.validators import reject_trivial
 from roboco.services.gateway.choreographer._verb_runner import VerbRunner
 from roboco.services.gateway.claim_guards import (
     already_active_guard,
@@ -606,6 +607,93 @@ class Choreographer:
             # response is the contract; the audit row is observability-only.
             logger.warning("audit.log_event failed", error=str(exc), verb=verb)
         return env
+
+    @classmethod
+    def _free_text_soup(
+        cls, checks: tuple[tuple[str, Any, int], ...]
+    ) -> Envelope | None:
+        """Return a bare ``invalid_state`` envelope for the first soupy field.
+
+        ``checks`` is a tuple of ``(field_name, value, min_chars)``. A value
+        that is ``None`` or empty/whitespace is skipped — presence is gated
+        elsewhere; this rejects *filler* in text the agent actually supplied
+        (``wip``, ``asdf``, ``tbd``, ``...``). A list value has each item
+        checked. The returned envelope carries no introspection or audit row:
+        the caller folds it into its existing rejection ``return`` so the soup
+        check adds no extra return (verbs stay under the complexity bound), and
+        the agent always gets a remediable envelope, never a 422 (which would
+        trip the do-server circuit breaker).
+        """
+        for name, value, min_chars in checks:
+            items = value if isinstance(value, list) else [value]
+            for idx, item in enumerate(items):
+                if item is None or not str(item).strip():
+                    continue
+                label = f"{name}[{idx}]" if isinstance(value, list) else name
+                env = cls._soup_reason(str(item), label, min_chars)
+                if env is not None:
+                    return env
+        return None
+
+    async def _guard_free_text(
+        self,
+        *,
+        checks: tuple[tuple[str, Any, int], ...],
+        task: Any,
+        agent_id: UUID,
+        role_str: str,
+        verb: str,
+    ) -> Envelope | None:
+        """Emit-on-soup wrapper over :meth:`_free_text_soup`.
+
+        For verbs that have return-count headroom: stamps introspection, audits
+        via ``_emit_rejection``, and returns the rejection (or ``None`` clean).
+        Verbs already at the return bound call ``_free_text_soup`` directly and
+        fold the result into an existing rejection return instead.
+        """
+        env = self._free_text_soup(checks)
+        if env is None:
+            return None
+        return await self._emit_rejection(
+            env.with_introspection(task=task, role=role_str),
+            agent_id=agent_id,
+            task_id=getattr(task, "id", None),
+            verb=verb,
+        )
+
+    @staticmethod
+    def _soup_reason(value: str, field: str, min_chars: int) -> Envelope | None:
+        """Build an ``invalid_state`` envelope when ``value`` is filler, else None."""
+        try:
+            reject_trivial(value, field=field, min_chars=min_chars)
+        except ValueError as exc:
+            return Envelope.invalid_state(
+                message=str(exc),
+                remediate=(
+                    f"write a substantive {field} (>={min_chars} chars, no filler "
+                    "like 'asdf'/'wip'/'tbd'/'...'); state what actually happened."
+                ),
+                context_briefing={},
+            )
+        return None
+
+    @staticmethod
+    def _soup_or_decision_env(
+        soup: Envelope | None, decision: Any, briefing: dict[str, Any]
+    ) -> Envelope | None:
+        """Pick the rejection envelope: soup first, then the spec decision.
+
+        Lets a verb fold the free-text soup check into its existing
+        spec-gate rejection ``return`` with a single branch — the two
+        fallback ``or``s live here, keeping the verb body under the
+        cyclomatic bound. Returns ``None`` when neither rejects; the caller
+        stamps introspection + emits.
+        """
+        if soup is not None:
+            return soup
+        if not decision.allowed:
+            return Envelope.from_decision(decision, briefing=briefing)
+        return None
 
     # --- Phase 1 (developer) verbs ---
 
@@ -1529,11 +1617,13 @@ class Choreographer:
         # standard tracing/field gates beforehand.
         if str(t.status) == "verifying" and t.assigned_to == agent_id:
             return await self._i_am_done_resume_from_verifying(ctx)
+        # i_am_done notes is optional and supplementary (the real summary lives
+        # in commits + journal:reflect), so guard it lightly — a banned token
+        # ('wip'/'x') is soup, but a terse real word like 'done' is fine.
+        soup = self._free_text_soup(checks=(("notes", notes, 4),))
         decision = spec_module.can_invoke_intent(role, "i_am_done", t, spec_ctx)
-        if not decision.allowed:
-            return await self._reject_i_am_done(
-                ctx, Envelope.from_decision(decision, briefing=briefing)
-            )
+        if env := self._soup_or_decision_env(soup, decision, briefing):
+            return await self._reject_i_am_done(ctx, env)
         if gate_rejection := await self._i_am_done_gate(ctx):
             return gate_rejection
         return await self._i_am_done_run(ctx, agent, spec_ctx)
@@ -2457,12 +2547,11 @@ class Choreographer:
             original_developer_slug=_extract_original_developer(t),
             notes=reason,
         )
+        soup = self._free_text_soup(checks=(("reason", reason, 8),))
         decision = spec_module.can_invoke_intent(role, "i_am_blocked", t, spec_ctx)
-        if not decision.allowed:
+        if env := self._soup_or_decision_env(soup, decision, briefing):
             return await self._emit_rejection(
-                Envelope.from_decision(decision, briefing=briefing).with_introspection(
-                    task=t, role=role_str
-                ),
+                env.with_introspection(task=t, role=role_str),
                 agent_id=agent_id,
                 task_id=task_id,
                 verb="i_am_blocked",
@@ -3340,12 +3429,16 @@ class Choreographer:
             actor_slug=getattr(agent, "slug", None) if agent is not None else None,
             original_developer_slug=_extract_original_developer(parent),
         )
+        soup = self._free_text_soup(
+            checks=(
+                ("title", inputs.title, 5),
+                ("description", inputs.description, 10),
+            )
+        )
         decision = spec_module.can_invoke_intent(role, "delegate", parent, spec_ctx)
-        if not decision.allowed:
+        if env := self._soup_or_decision_env(soup, decision, briefing):
             return await self._emit_rejection(
-                Envelope.from_decision(decision, briefing=briefing).with_introspection(
-                    task=parent, role=role_str
-                ),
+                env.with_introspection(task=parent, role=role_str),
                 agent_id=pm_agent_id,
                 task_id=parent_task_id,
                 verb="delegate",
@@ -4414,12 +4507,11 @@ class Choreographer:
             original_developer_slug=_extract_original_developer(t),
             notes=notes,
         )
+        soup = self._free_text_soup(checks=(("notes", notes, 10),))
         decision = spec_module.can_invoke_intent(role, "submit_up", t, spec_ctx)
-        if not decision.allowed:
+        if env := self._soup_or_decision_env(soup, decision, briefing):
             return await self._emit_rejection(
-                Envelope.from_decision(decision, briefing=briefing).with_introspection(
-                    task=t, role=role_str
-                ),
+                env.with_introspection(task=t, role=role_str),
                 agent_id=pm_agent_id,
                 task_id=task_id,
                 verb="submit_up",
@@ -5110,12 +5202,11 @@ class Choreographer:
             actor_slug=getattr(agent, "slug", None) if agent is not None else None,
             notes=notes,
         )
+        soup = self._free_text_soup(checks=(("notes", notes, 10),))
         decision = spec_module.can_invoke_intent(role, "submit_root", t, spec_ctx)
-        if not decision.allowed:
+        if env := self._soup_or_decision_env(soup, decision, briefing):
             return await self._emit_rejection(
-                Envelope.from_decision(decision, briefing=briefing).with_introspection(
-                    task=t, role=role_str
-                ),
+                env.with_introspection(task=t, role=role_str),
                 agent_id=main_pm_agent_id,
                 task_id=task_id,
                 verb="submit_root",
@@ -5361,6 +5452,14 @@ class Choreographer:
             actor_slug=getattr(agent, "slug", None) if agent is not None else None,
             original_developer_slug=_extract_original_developer(t),
         )
+        if soup := await self._guard_free_text(
+            checks=(("notes", notes, 10),),
+            task=t,
+            agent_id=agent_id,
+            role_str=role_str,
+            verb="complete",
+        ):
+            return soup
         decision = spec_module.can_invoke_intent(role, "complete", t, spec_ctx)
         if not decision.allowed:
             return await self._emit_rejection(
@@ -5423,12 +5522,11 @@ class Choreographer:
             original_developer_slug=_extract_original_developer(t),
             notes=reason,
         )
+        soup = self._free_text_soup(checks=(("reason", reason, 10),))
         decision = spec_module.can_invoke_intent(role, "escalate_up", t, spec_ctx)
-        if not decision.allowed:
+        if env := self._soup_or_decision_env(soup, decision, briefing):
             return await self._emit_rejection(
-                Envelope.from_decision(decision, briefing=briefing).with_introspection(
-                    task=t, role=role_str
-                ),
+                env.with_introspection(task=t, role=role_str),
                 agent_id=pm_agent_id,
                 task_id=task_id,
                 verb="escalate_up",
@@ -5591,12 +5689,11 @@ class Choreographer:
             original_developer_slug=_extract_original_developer(t),
             notes=reason,
         )
+        soup = self._free_text_soup(checks=(("reason", reason, 10),))
         decision = spec_module.can_invoke_intent(role, "escalate_to_ceo", t, spec_ctx)
-        if not decision.allowed:
+        if env := self._soup_or_decision_env(soup, decision, briefing):
             return await self._emit_rejection(
-                Envelope.from_decision(decision, briefing=briefing).with_introspection(
-                    task=t, role=role_str
-                ),
+                env.with_introspection(task=t, role=role_str),
                 agent_id=agent_id,
                 task_id=task_id,
                 verb="escalate_to_ceo",

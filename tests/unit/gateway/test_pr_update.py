@@ -67,7 +67,11 @@ async def test_pr_update_missing_pr_number_returns_invalid_state() -> None:
     ca = ContentActions(deps)
 
     env = await ca.pr_update(
-        agent_id=agent_id, task_id=task.id, title="new", body=None, reviewers=None
+        agent_id=agent_id,
+        task_id=task.id,
+        title="updated PR title",
+        body=None,
+        reviewers=None,
     )
     body = env.as_dict()
 
@@ -216,16 +220,16 @@ async def test_pr_update_all_three_forwarded() -> None:
     env = await ca.pr_update(
         agent_id=agent_id,
         task_id=task.id,
-        title="t",
-        body="b",
+        title="updated PR title",
+        body="a substantive PR body",
         reviewers=["be-dev-2"],
     )
     body = env.as_dict()
 
     assert body["error"] is None
     call_kwargs = git_svc.update_pr_for_task.call_args.kwargs
-    assert call_kwargs["title"] == "t"
-    assert call_kwargs["body"] == "b"
+    assert call_kwargs["title"] == "updated PR title"
+    assert call_kwargs["body"] == "a substantive PR body"
     assert call_kwargs["reviewers"] == ["be-dev-2"]
     assert set(body["evidence"]["updated_fields"]) == {"title", "body", "reviewers"}
 
@@ -250,7 +254,11 @@ async def test_pr_update_cell_pm_on_same_team_allowed() -> None:
     ca = ContentActions(deps)
 
     env = await ca.pr_update(
-        agent_id=pm_id, task_id=task.id, title="t", body=None, reviewers=None
+        agent_id=pm_id,
+        task_id=task.id,
+        title="updated PR title",
+        body=None,
+        reviewers=None,
     )
     body = env.as_dict()
 
@@ -272,7 +280,11 @@ async def test_pr_update_cell_pm_on_other_team_rejected() -> None:
     ca = ContentActions(deps)
 
     env = await ca.pr_update(
-        agent_id=pm_id, task_id=task.id, title="t", body=None, reviewers=None
+        agent_id=pm_id,
+        task_id=task.id,
+        title="updated PR title",
+        body=None,
+        reviewers=None,
     )
 
     assert env.as_dict()["error"] == "not_authorized"
@@ -299,7 +311,11 @@ async def test_pr_update_main_pm_any_team_allowed() -> None:
     ca = ContentActions(deps)
 
     env = await ca.pr_update(
-        agent_id=pm_id, task_id=task.id, title="t", body=None, reviewers=None
+        agent_id=pm_id,
+        task_id=task.id,
+        title="updated PR title",
+        body=None,
+        reviewers=None,
     )
 
     assert env.as_dict()["error"] is None
@@ -316,7 +332,11 @@ async def test_pr_update_task_not_found_returns_not_found() -> None:
     ca = ContentActions(deps)
 
     env = await ca.pr_update(
-        agent_id=agent_id, task_id=uuid4(), title="t", body=None, reviewers=None
+        agent_id=agent_id,
+        task_id=uuid4(),
+        title="updated PR title",
+        body=None,
+        reviewers=None,
     )
     body = env.as_dict()
 
@@ -339,7 +359,11 @@ async def test_pr_update_git_error_returned_as_invalid_state() -> None:
     ca = ContentActions(deps)
 
     env = await ca.pr_update(
-        agent_id=agent_id, task_id=task.id, title="t", body=None, reviewers=None
+        agent_id=agent_id,
+        task_id=task.id,
+        title="updated PR title",
+        body=None,
+        reviewers=None,
     )
     body = env.as_dict()
 

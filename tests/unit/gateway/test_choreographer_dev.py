@@ -585,7 +585,7 @@ async def test_i_am_done_not_assigned_returns_tracing_gap() -> None:
     deps = _make_deps(task=task_svc)
     c = Choreographer(deps)
 
-    env = await c.i_am_done(agent_id, task_id, "x")
+    env = await c.i_am_done(agent_id, task_id, "completed the work")
     body = env.as_dict()
     assert body["error"] == "tracing_gap"
     assert "owns_task" in body["missing"]

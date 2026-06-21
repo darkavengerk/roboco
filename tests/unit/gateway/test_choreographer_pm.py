@@ -763,7 +763,7 @@ async def test_complete_rejects_non_pm_role() -> None:
     deps = _make_deps(task=task_svc)
     c = Choreographer(deps)
 
-    env = await c.complete(dev_id, task_id, notes="x")
+    env = await c.complete(dev_id, task_id, notes="reviewed and approved")
     body = env.as_dict()
     assert body["error"] == "not_authorized"
     assert "cell_pm" in body["remediate"] and "main_pm" in body["remediate"]
@@ -816,7 +816,7 @@ async def test_escalate_up_returns_invalid_state_when_target_lookup_fails() -> N
     deps = _make_deps(task=task_svc, journal=journal_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_up(pm_id, task_id, reason="x")
+    env = await c.escalate_up(pm_id, task_id, reason="needs cross-cell coordination")
     body = env.as_dict()
     assert body["error"] == "invalid_state"
     assert "main-pm" in body["message"]
@@ -841,7 +841,7 @@ async def test_escalate_up_blocks_without_journal_decision() -> None:
     deps = _make_deps(task=task_svc, journal=journal_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_up(pm_id, task_id, reason="x")
+    env = await c.escalate_up(pm_id, task_id, reason="needs cross-cell coordination")
     body = env.as_dict()
     assert body["error"] == "tracing_gap"
     assert "journal:decision" in body["missing"]
@@ -871,7 +871,7 @@ async def test_escalate_up_no_target_returns_invalid_state() -> None:
     deps = _make_deps(task=task_svc, journal=journal_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_up(pm_id, task_id, reason="x")
+    env = await c.escalate_up(pm_id, task_id, reason="needs cross-cell coordination")
     body = env.as_dict()
     assert body["error"] == "invalid_state"
 
@@ -885,5 +885,5 @@ async def test_escalate_up_task_not_found() -> None:
     deps = _make_deps(task=task_svc)
     c = Choreographer(deps)
 
-    env = await c.escalate_up(pm_id, task_id, reason="x")
+    env = await c.escalate_up(pm_id, task_id, reason="needs cross-cell coordination")
     assert env.as_dict()["error"] == "not_found"

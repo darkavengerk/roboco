@@ -418,6 +418,36 @@ class QAMixin(_Base):
         except ContentValidationError:
             return
 
+    async def _qa_review_text_gate(
+        self,
+        *,
+        qa_agent_id: UUID,
+        task_id: UUID,
+        notes: str,
+        task: Any,
+        role_str: str,
+        verb: str,
+        soup_checks: tuple[tuple[str, Any, int], ...],
+    ) -> Envelope | None:
+        """Notes/journal/evidence gate + free-text anti-soup, in one call.
+
+        Shared by pass_review (checks ``notes``) and fail_review (checks each
+        ``issue``). Keeps the soup branch out of the verb bodies so they stay
+        under the cyclomatic bound. Returns the first rejection, else ``None``.
+        """
+        gate = await self._qa_pass_gate_check(qa_agent_id, task_id, notes, task, verb)
+        if gate is not None:
+            return gate
+        soup = self._free_text_soup(checks=soup_checks)
+        if soup is None:
+            return None
+        return await self._emit_rejection(
+            soup.with_introspection(task=task, role=role_str),
+            agent_id=qa_agent_id,
+            task_id=task_id,
+            verb=verb,
+        )
+
     async def pass_review(
         self,
         qa_agent_id: UUID,
@@ -453,10 +483,15 @@ class QAMixin(_Base):
         )
         if spec_rejection is not None:
             return spec_rejection
-        gate_rejection = await self._qa_pass_gate_check(
-            qa_agent_id, task_id, notes, t, "pass_review"
-        )
-        if gate_rejection is not None:
+        if gate_rejection := await self._qa_review_text_gate(
+            qa_agent_id=qa_agent_id,
+            task_id=task_id,
+            notes=notes,
+            task=t,
+            role_str=role_str,
+            verb="pass_review",
+            soup_checks=(("notes", notes, 8),),
+        ):
             return gate_rejection
         ac_rejection = self._qa_ac_coverage_check(t, ac_verdicts)
         if ac_rejection is not None:
@@ -550,10 +585,15 @@ class QAMixin(_Base):
         )
         if spec_rejection is not None:
             return spec_rejection
-        gate_rejection = await self._qa_pass_gate_check(
-            qa_agent_id, task_id, notes, t, "fail_review"
-        )
-        if gate_rejection is not None:
+        if gate_rejection := await self._qa_review_text_gate(
+            qa_agent_id=qa_agent_id,
+            task_id=task_id,
+            notes=notes,
+            task=t,
+            role_str=role_str,
+            verb="fail_review",
+            soup_checks=(("issues", issues, 8),),
+        ):
             return gate_rejection
 
         briefing = await self._briefing_for(qa_agent_id, task_id)

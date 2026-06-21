@@ -440,6 +440,14 @@ class DocMixin(_Base):
         # otherwise the gate's tracing_gap loops into the circuit breaker.
         await self._ensure_doc_reflect(doc_agent_id, task_id, notes, files)
 
+        if soup := await self._guard_free_text(
+            checks=(("notes", notes, 10),),
+            task=owned_task,
+            agent_id=doc_agent_id,
+            role_str=role_str,
+            verb="i_documented",
+        ):
+            return soup
         gate_rejection = await self._check_doc_gates(
             doc_agent_id, task_id, notes, files, owned_task
         )

@@ -193,6 +193,14 @@ class PRGateMixin(_Base):
             notes=notes,
             issues=issues,
         )
+        if soup := await self._guard_free_text(
+            checks=(("notes", notes, 8), ("issues", list(issues), 8)),
+            task=t,
+            agent_id=reviewer_agent_id,
+            role_str=role_str,
+            verb=verb,
+        ):
+            return soup
         decision = spec_module.can_invoke_intent(role, verb, t, spec_ctx)
         if not decision.allowed:
             return await self._emit_rejection(

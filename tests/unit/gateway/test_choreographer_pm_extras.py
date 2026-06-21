@@ -1008,7 +1008,7 @@ async def test_submit_up_short_notes_rejected() -> None:
     deps = _make_deps(task=task_svc)
     c = Choreographer(deps)
 
-    env = await c.submit_up(pm_id, task_id, notes="short")
+    env = await c.submit_up(pm_id, task_id, notes="ready for now")
     body = env.as_dict()
     assert body["error"] == "tracing_gap"
 

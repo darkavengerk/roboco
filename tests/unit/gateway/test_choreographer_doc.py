@@ -158,7 +158,7 @@ async def test_i_documented_requires_min_notes() -> None:
     deps = _make_deps(task=task_svc, journal=journal_svc)
     c = Choreographer(deps)
 
-    env = await c.i_documented(doc_id, task_id, notes="short", files=["a.md"])
+    env = await c.i_documented(doc_id, task_id, notes="wrote the docs", files=["a.md"])
     body = env.as_dict()
     assert body["error"] == "tracing_gap"
     assert "docs_notes>=min" in body["missing"]

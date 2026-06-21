@@ -53,6 +53,29 @@ class ChoreographerHelpers:
     ) -> Envelope:
         raise NotImplementedError
 
+    @classmethod
+    def _free_text_soup(
+        cls, checks: tuple[tuple[str, Any, int], ...]
+    ) -> Envelope | None:
+        raise NotImplementedError
+
+    @staticmethod
+    def _soup_or_decision_env(
+        soup: Envelope | None, decision: Any, briefing: dict[str, Any]
+    ) -> Envelope | None:
+        raise NotImplementedError
+
+    async def _guard_free_text(
+        self,
+        *,
+        checks: tuple[tuple[str, Any, int], ...],
+        task: Any,
+        agent_id: UUID,
+        role_str: str,
+        verb: str,
+    ) -> Envelope | None:
+        raise NotImplementedError
+
     async def _briefing_for(
         self,
         agent_id: UUID,
