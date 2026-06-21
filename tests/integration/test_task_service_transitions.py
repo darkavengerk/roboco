@@ -20,6 +20,7 @@ from roboco.db.tables import (
     ProjectTable,
 )
 from roboco.events import EventType
+from roboco.foundation.policy.content import markers
 from roboco.models import AgentRole, AgentStatus, Team
 from roboco.models.base import (
     BlockerResolverType,
@@ -776,7 +777,11 @@ async def test_escalate_to_ceo_advances_status_with_notes(
     )
     assert escalated is not None
     assert escalated.status == TaskStatus.AWAITING_CEO_APPROVAL
-    assert "escalation_notes" in (escalated.quick_context or "")
+    # The escalation note is a structured marker now, not quick_context soup.
+    assert (
+        markers.get_transition_note(escalated, "escalate_to_ceo")
+        == "needs CEO review for breaking change"
+    )
 
 
 # ---------------------------------------------------------------------------

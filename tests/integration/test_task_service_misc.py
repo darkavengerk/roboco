@@ -775,16 +775,22 @@ def test_record_completion_notes_with_existing_context(task_setup: dict) -> None
     svc = task_setup["svc"]
     task = MagicMock()
     task.quick_context = "existing"
+    task.orchestration_markers = None
     svc._record_completion_notes(task, "merged successfully")
-    assert "completion_notes:merged successfully" in task.quick_context
+    # quick_context (the ResumptionNote slot) is left untouched; the note goes
+    # to a structured marker, not packed in as `completion_notes:<text>` soup.
+    assert task.quick_context == "existing"
+    assert markers.get_transition_note(task, "completion") == "merged successfully"
 
 
 def test_record_completion_notes_no_existing_context(task_setup: dict) -> None:
     svc = task_setup["svc"]
     task = MagicMock()
     task.quick_context = None
+    task.orchestration_markers = None
     svc._record_completion_notes(task, "merged")
-    assert task.quick_context.startswith("completion_notes:")
+    assert task.quick_context is None
+    assert markers.get_transition_note(task, "completion") == "merged"
 
 
 # ---------------------------------------------------------------------------
