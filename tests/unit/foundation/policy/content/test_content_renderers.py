@@ -15,18 +15,20 @@ from roboco.foundation.policy.content import (
 
 
 def test_pr_review_renders_sections_and_findings_table() -> None:
-    md = PrReviewContent(
-        summary="The guard is missing on the 422 path.",
-        findings=[
-            {
-                "file": "roboco/services/git.py",
-                "line": 42,
-                "severity": "blocker",
-                "expected": "retry as COMMENT",
-                "actual": "raises",
-            }
-        ],
-        verdict="changes_requested",
+    md = PrReviewContent.model_validate(
+        {
+            "summary": "The guard is missing on the 422 path.",
+            "findings": [
+                {
+                    "file": "roboco/services/git.py",
+                    "line": 42,
+                    "severity": "blocker",
+                    "expected": "retry as COMMENT",
+                    "actual": "raises",
+                }
+            ],
+            "verdict": "changes_requested",
+        }
     ).render_markdown()
     assert "## Summary" in md
     assert "## Findings" in md
@@ -38,17 +40,19 @@ def test_pr_review_renders_sections_and_findings_table() -> None:
 
 
 def test_qa_renders_checklist() -> None:
-    md = QaNote(
-        summary="Verified every acceptance criterion against the diff.",
-        ac_verdicts=[
-            {
-                "criterion": "AC1 returns 400",
-                "status": "verified",
-                "how": "test passes",
-            },
-            {"criterion": "AC2 logs", "status": "failed", "how": "no log emitted"},
-        ],
-        verdict="failed",
+    md = QaNote.model_validate(
+        {
+            "summary": "Verified every acceptance criterion against the diff.",
+            "ac_verdicts": [
+                {
+                    "criterion": "AC1 returns 400",
+                    "status": "verified",
+                    "how": "test passes",
+                },
+                {"criterion": "AC2 logs", "status": "failed", "how": "no log emitted"},
+            ],
+            "verdict": "failed",
+        }
     ).render_markdown()
     assert "## Acceptance Criteria" in md
     assert "✅" in md and "❌" in md
@@ -75,14 +79,20 @@ def test_resumption_renders_done_next_where() -> None:
 
 
 def test_task_description_renders_all_sections() -> None:
-    md = TaskDescription(
-        objective="Add the structured content standard.",
-        what_this_builds=["a schema layer", "a gateway gate"],
-        the_work=[
-            {"team": "backend", "summary": "models + verbs", "items": ["model", "verb"]}
-        ],
-        notes=["reuse the Team enum"],
-        acceptance_criteria=["reviewer notes are isolated"],
+    md = TaskDescription.model_validate(
+        {
+            "objective": "Add the structured content standard.",
+            "what_this_builds": ["a schema layer", "a gateway gate"],
+            "the_work": [
+                {
+                    "team": "backend",
+                    "summary": "models + verbs",
+                    "items": ["model", "verb"],
+                }
+            ],
+            "notes": ["reuse the Team enum"],
+            "acceptance_criteria": ["reviewer notes are isolated"],
+        }
     ).render_markdown()
     assert "## Objective" in md
     assert "## What This Builds" in md

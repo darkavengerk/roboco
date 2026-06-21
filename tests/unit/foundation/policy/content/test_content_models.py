@@ -22,46 +22,56 @@ from roboco.foundation.policy.content.enums import Severity, Verdict
 
 
 def test_pr_review_valid() -> None:
-    c = PrReviewContent(
-        summary="The change is correct and covered by tests.",
-        findings=[
-            {
-                "file": "roboco/services/git.py",
-                "line": 42,
-                "severity": "major",
-                "expected": "raises on 422",
-                "actual": "swallows the error",
-            }
-        ],
-        verdict="changes_requested",
+    c = PrReviewContent.model_validate(
+        {
+            "summary": "The change is correct and covered by tests.",
+            "findings": [
+                {
+                    "file": "roboco/services/git.py",
+                    "line": 42,
+                    "severity": "major",
+                    "expected": "raises on 422",
+                    "actual": "swallows the error",
+                }
+            ],
+            "verdict": "changes_requested",
+        }
     )
     assert c.findings[0].severity is Severity.MAJOR
     assert c.verdict is Verdict.CHANGES_REQUESTED
 
 
 def test_qa_valid() -> None:
-    c = QaNote(
-        summary="Reviewed all acceptance criteria against the diff.",
-        ac_verdicts=[
-            {"criterion": "AC1 returns 400", "status": "verified", "how": "test passes"}
-        ],
-        verdict="passed",
+    c = QaNote.model_validate(
+        {
+            "summary": "Reviewed all acceptance criteria against the diff.",
+            "ac_verdicts": [
+                {
+                    "criterion": "AC1 returns 400",
+                    "status": "verified",
+                    "how": "test passes",
+                }
+            ],
+            "verdict": "passed",
+        }
     )
     assert c.ac_verdicts[0].status == "verified"
 
 
 def test_task_description_valid() -> None:
-    c = TaskDescription(
-        objective="Add a structured PR-review comment format.",
-        what_this_builds=["a reviewer schema"],
-        the_work=[
-            {
-                "team": "backend",
-                "summary": "schema + gateway",
-                "items": ["model", "verb"],
-            }
-        ],
-        acceptance_criteria=["reviewer notes land in their own slot"],
+    c = TaskDescription.model_validate(
+        {
+            "objective": "Add a structured PR-review comment format.",
+            "what_this_builds": ["a reviewer schema"],
+            "the_work": [
+                {
+                    "team": "backend",
+                    "summary": "schema + gateway",
+                    "items": ["model", "verb"],
+                }
+            ],
+            "acceptance_criteria": ["reviewer notes land in their own slot"],
+        }
     )
     assert c.the_work[0].team.value == "backend"
 

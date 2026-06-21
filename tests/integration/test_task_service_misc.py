@@ -34,11 +34,11 @@ import pytest
 import pytest_asyncio
 from roboco.db.tables import AgentTable, ProjectTable, WorkSessionTable
 from roboco.enforcement import TaskLifecycleError
+from roboco.foundation.policy.content import markers
 from roboco.models import AgentRole, AgentStatus, Team
 from roboco.models.base import Complexity, TaskNature, TaskStatus, TaskType
 from roboco.models.permissions import AgentContext
 from roboco.models.task import TaskCreateRequest
-from roboco.foundation.policy.content import markers
 from roboco.models.work_session import WorkSessionStatus
 from roboco.services.base import ValidationError
 from roboco.services.task import (
@@ -159,7 +159,9 @@ def test_extract_original_developer_no_match() -> None:
 
 
 def test_extract_original_developer_empty() -> None:
-    assert extract_original_developer(SimpleNamespace(orchestration_markers=None)) is None
+    assert (
+        extract_original_developer(SimpleNamespace(orchestration_markers=None)) is None
+    )
     assert extract_original_developer(SimpleNamespace(orchestration_markers={})) is None
 
 
