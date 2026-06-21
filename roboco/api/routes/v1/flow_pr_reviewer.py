@@ -59,7 +59,7 @@ async def post_pr_review(
     choreographer: _ChoreographerDep,
 ) -> dict:
     env = await choreographer.post_pr_review(
-        x_agent_id, body.task_id, body.body, body.event
+        x_agent_id, body.task_id, body.body, body.event, body.findings
     )
     return envelope_to_response(env, request)
 

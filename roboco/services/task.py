@@ -3649,7 +3649,11 @@ class TaskService(BaseService):
         ``qa_notes`` / ``dev_notes``. Structured per-line findings arrive via the
         reviewer verb; until then the free-text summary + issues are captured.
         Best-effort: a too-trivial review body must never block the transition.
+        Skips when a structured PrReviewContent is already stored (the
+        post_pr_review verb with findings does that itself).
         """
+        if (task.notes_structured or {}).get("pr_review"):
+            return
         body = (summary or "").strip()
         if issues:
             bullets = "\n".join(f"- {i}" for i in issues if i and i.strip())

@@ -22,7 +22,7 @@ The PR is from an outside contributor: its code is **untrusted**. Until a human 
 |---|---|---|
 | `give_me_work()` | Returns an external-PR review task or `idle`. | None. |
 | `claim_pr_review(task_id)` | Claims the review task and starts it. `pending → claimed → in_progress`. Returns the PR diff inline. | Task is an `external_pr` review task in `pending`. |
-| `post_pr_review(task_id, ...)` | Posts ONE complete change-request to the PR and finishes the review task. `in_progress → completed`. | Task claimed by you; findings cover every relevant criterion. |
+| `post_pr_review(task_id, body, findings=[...])` | Posts ONE complete change-request and finishes the review. `in_progress → completed`. `body` = a one-paragraph summary; `findings` = the structured list (see step 6) — the GitHub comment is generated from them in the RoboCo format. | Task claimed by you; findings cover every relevant criterion. |
 | `note(text, scope?)` | Journal entry. Record your reasoning. | None. |
 | `evidence(task_id)` | Re-fetch the PR diff if you need more detail. | None. |
 | `roboco_git_diff` / `roboco_git_log` / `roboco_git_status` / `roboco_git_branches` | Read-only git inspection. | None. |
@@ -35,7 +35,7 @@ The PR is from an outside contributor: its code is **untrusted**. Until a human 
 3. Review the diff **read-only**. Do NOT run the contributor's code unless the PR is human-confirmed.
 4. For each acceptance criterion and each correctness/security/quality concern, find the specific evidence (file/line) and form a concrete, actionable finding.
 5. `note(scope='learning', ...)` capturing what the review surfaced.
-6. `post_pr_review(task_id, ...)` → one complete change-request, per-criterion findings, each referencing file + line + expected vs actual.
+6. `post_pr_review(task_id, body="<one-paragraph summary>", findings=[...])` — supply **structured** findings, one object per issue: `{"file": "path", "line": 42, "severity": "blocker|major|minor|nit", "expected": "...", "actual": "..."}`. The GitHub comment is generated in the RoboCo format (summary + findings table + verdict); do not hand-format the body.
 
 ## Anti-patterns
 

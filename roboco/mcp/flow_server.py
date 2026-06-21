@@ -365,16 +365,28 @@ def claim_pr_review(task_id: str) -> dict[str, Any]:
 
 
 def post_pr_review(
-    task_id: str, body: str, event: str = "REQUEST_CHANGES"
+    task_id: str,
+    body: str,
+    event: str = "REQUEST_CHANGES",
+    findings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """PR reviewer: post ONE complete change-request to the PR and finish the task.
 
-    body: the full review (per-criterion findings). event: REQUEST_CHANGES
-    (default), APPROVE, or COMMENT. Requires a journal:learning entry first.
+    body: a one-paragraph summary. findings: the per-criterion list — each
+    {file, line?, severity (blocker|major|minor|nit), expected, actual}. When
+    findings are given, the GitHub comment is GENERATED in the RoboCo format
+    (summary + a findings table + verdict) — do not hand-format it in body.
+    event: REQUEST_CHANGES (default), APPROVE, or COMMENT. Requires a
+    journal:learning entry first.
     """
     return _post(
         _role_path("post_pr_review"),
-        {"task_id": task_id, "body": body, "event": event},
+        {
+            "task_id": task_id,
+            "body": body,
+            "event": event,
+            "findings": findings or [],
+        },
     )
 
 

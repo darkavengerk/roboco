@@ -1,5 +1,6 @@
 """Request schemas for /api/v1/flow/* intent verbs."""
 
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -133,6 +134,14 @@ class PostPrReviewRequest(BaseModel):
     task_id: UUID
     body: str = Field(..., min_length=1)
     event: str = "REQUEST_CHANGES"
+    findings: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Structured per-criterion findings — each {file, line?, severity "
+            "(blocker|major|minor|nit), expected, actual}. When provided, the "
+            "GitHub comment is generated from them in the RoboCo format."
+        ),
+    )
 
 
 class ClaimGateReviewRequest(BaseModel):

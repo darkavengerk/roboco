@@ -21,6 +21,8 @@ import structlog
 
 from roboco.foundation.policy import lifecycle as spec_module
 from roboco.foundation.policy import tracing as _tr
+from roboco.foundation.policy.content import ContentValidationError, validate_content
+from roboco.services.content_notes import apply_structured_note
 from roboco.services.gateway.envelope import Envelope
 
 if TYPE_CHECKING:
@@ -115,12 +117,83 @@ class PRReviewerMixin(_Base):
             context_briefing=briefing,
         ).with_introspection(task=t, role=role_str)
 
+    @staticmethod
+    def _build_pr_review_content(
+        body: str, findings: list[dict[str, Any]], event: str
+    ) -> Any:
+        """Validate structured findings into a PrReviewContent, or an Envelope.
+
+        The reviewer supplies a summary (``body``) + structured ``findings``; the
+        canonical GitHub comment is generated from them. ``event`` maps to the
+        verdict (APPROVE → approved, else changes_requested).
+        """
+        verdict = "approved" if event == "APPROVE" else "changes_requested"
+        try:
+            return validate_content(
+                "pr_review",
+                {"summary": body, "findings": findings, "verdict": verdict},
+            )
+        except ContentValidationError as exc:
+            return Envelope.invalid_state(
+                message=f"malformed PR-review findings: {exc.field} — {exc.reason}",
+                remediate=(
+                    "each finding needs file + expected + actual (line + severity "
+                    "optional); re-call post_pr_review with structured findings"
+                ),
+            )
+
+    def _resolve_post_body(
+        self, t: Any, body: str, findings: list[dict[str, Any]] | None, event: str
+    ) -> Any:
+        """The GitHub comment body: the canonical render when findings are given
+        (and stored structured), else the free-text body. Envelope on malformed
+        findings."""
+        if not findings:
+            return body
+        structured = self._build_pr_review_content(body, findings, event)
+        if isinstance(structured, Envelope):
+            return structured
+        apply_structured_note(t, "pr_review", structured)
+        return structured.render_markdown()
+
+    async def _post_review_side_effects(
+        self,
+        t: Any,
+        slug: str | None,
+        pr_number: int | None,
+        post_body: str,
+        event: str,
+        task_id: UUID,
+    ) -> None:
+        """Post the review to GitHub + surface it to the CEO (both best-effort)."""
+        if slug and pr_number:
+            try:
+                await self.git.post_pr_review(slug, pr_number, post_body, event=event)
+            except Exception:
+                logger.exception(
+                    "post_pr_review GitHub post failed", task_id=str(task_id)
+                )
+        if pr_number:
+            try:
+                from roboco.services.notification import NotificationService
+
+                await NotificationService().send_external_pr_reviewed_notification(
+                    task_id=str(task_id),
+                    pr_number=pr_number,
+                    pr_url=str(getattr(t, "pr_url", "") or ""),
+                )
+            except Exception:
+                logger.exception(
+                    "post_pr_review CEO notify failed", task_id=str(task_id)
+                )
+
     async def post_pr_review(
         self,
         reviewer_agent_id: UUID,
         task_id: UUID,
         body: str,
         event: str = "REQUEST_CHANGES",
+        findings: list[dict[str, Any]] | None = None,
     ) -> Envelope:
         """Post ONE change-request to the PR and finish the review task.
 
@@ -144,6 +217,14 @@ class PRReviewerMixin(_Base):
         agent, role_str, briefing, spec_ctx = pre
         slug = await self._project_slug_for(t)
         pr_number = t.pr_number
+        post_body = self._resolve_post_body(t, body, findings, event)
+        if isinstance(post_body, Envelope):
+            return await self._emit_rejection(
+                post_body.with_introspection(task=t, role=role_str),
+                agent_id=reviewer_agent_id,
+                task_id=task_id,
+                verb="post_pr_review",
+            )
         runner = self._verb_runner()
         try:
             t = await runner.run_intent("post_pr_review", t, agent, spec_ctx)
@@ -151,32 +232,11 @@ class PRReviewerMixin(_Base):
             return await self._runner_failure(
                 exc, t, role_str, briefing, reviewer_agent_id, task_id, "post_pr_review"
             )
-        # GitHub side-effect AFTER the DB transition (a2a.send pattern). Best-
-        # effort: a posting failure is logged, not rolled back — the review task
-        # is complete; a missed post can be re-driven manually.
-        if slug and pr_number:
-            try:
-                await self.git.post_pr_review(slug, pr_number, body, event=event)
-            except Exception:
-                logger.exception(
-                    "post_pr_review GitHub post failed", task_id=str(task_id)
-                )
-        # Surface the review to the CEO as an actionable decision (supersede /
-        # dismiss). The reviewer is read-only with no notify verb, so the server
-        # emits it. Best-effort — a notify failure must not fail the review.
-        if pr_number:
-            try:
-                from roboco.services.notification import NotificationService
-
-                await NotificationService().send_external_pr_reviewed_notification(
-                    task_id=str(task_id),
-                    pr_number=pr_number,
-                    pr_url=str(getattr(t, "pr_url", "") or ""),
-                )
-            except Exception:
-                logger.exception(
-                    "post_pr_review CEO notify failed", task_id=str(task_id)
-                )
+        # Side-effects AFTER the DB transition (a2a.send pattern), both best-
+        # effort: post the canonical review to GitHub + surface it to the CEO.
+        await self._post_review_side_effects(
+            t, slug, pr_number, post_body, event, task_id
+        )
         return Envelope.ok(
             status=str(t.status),
             task_id=str(task_id),
