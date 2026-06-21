@@ -727,6 +727,11 @@ class WorkSessionTable(Base):
         nullable=True,
     )
 
+    # Toolchain matching — the Python the workspace was provisioned with, and
+    # whether the project's test suite can actually be executed in it.
+    toolchain_python: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    toolchain_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False

@@ -78,6 +78,16 @@ class WorkSession(TimestampMixin):
         default=None, description="Agent who approved/merged the PR"
     )
 
+    # Toolchain matching
+    toolchain_python: str | None = Field(
+        default=None,
+        description="Python version the workspace was provisioned with",
+    )
+    toolchain_status: str | None = Field(
+        default=None,
+        description="Whether the project's suite can run: ok | broken | unknown",
+    )
+
 
 class WorkSessionCreate(RobocoBase):
     """Schema for creating a work session."""
@@ -102,4 +112,6 @@ class WorkSessionUpdate(RobocoBase):
     pr_status: str | None = None
     pr_created_at: datetime | None = None
     pr_merged_at: datetime | None = None
+    toolchain_python: str | None = None
+    toolchain_status: str | None = None
     merged_by: UUID | None = None

@@ -176,6 +176,22 @@ class Settings(BaseSettings):
     )
 
     # ==========================================================================
+    # Agent runtime toolchain matching (default-off)
+    # ==========================================================================
+    # When enabled, an agent's workspace is provisioned with the Python the
+    # TARGET project declares (uv resolves requires-python), and a delivery role
+    # that cannot execute the suite blocks instead of passing on a source read.
+    # When off, provisioning behaves exactly as today (system interpreter).
+    toolchain_match_enabled: bool = Field(
+        default=False,
+        description=(
+            "Provision the agent workspace with the target project's Python "
+            "(uv resolves requires-python) and block delivery gates when the "
+            "suite cannot be executed. Off => today's behavior."
+        ),
+    )
+
+    # ==========================================================================
     # Web Research (pluggable external search/fetch for Board + PM roles)
     # ==========================================================================
     # Calls go agent -> roboco-search MCP -> /api/research/* -> ResearchService

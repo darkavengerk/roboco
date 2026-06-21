@@ -441,6 +441,19 @@ def _seed_ws(setup: dict, **kwargs: Any) -> WorkSessionTable:
 
 
 @pytest.mark.asyncio
+async def test_worksession_toolchain_columns_round_trip(
+    ws_client: dict, db_session: AsyncSession
+) -> None:
+    """The toolchain_python / toolchain_status columns persist + round-trip."""
+    ws = _seed_ws(ws_client, toolchain_python="3.14", toolchain_status="ok")
+    db_session.add(ws)
+    await db_session.flush()
+    await db_session.refresh(ws)
+    assert ws.toolchain_python == "3.14"
+    assert ws.toolchain_status == "ok"
+
+
+@pytest.mark.asyncio
 async def test_get_session_by_id_seeded(
     ws_client: dict, db_session: AsyncSession
 ) -> None:
