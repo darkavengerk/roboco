@@ -20,6 +20,7 @@ Example:
 
 import asyncio
 import contextlib
+import json
 import math
 import os
 import re
@@ -37,6 +38,7 @@ from roboco.config import settings
 from roboco.db.tables import AgentTable
 from roboco.logging import get_logger
 from roboco.models.base import Team
+from roboco.services.toolchain import resolve_target_python
 
 logger = get_logger(__name__)
 
@@ -236,6 +238,17 @@ class WorkspaceError(Exception):
 # against. Lives under .git/ so it never shows up in `git status` (the agent's
 # clean-tree checks would otherwise trip on it) and is wiped with the clone.
 _DEP_INSTALL_MARKER = ".git/.roboco-dep-install"
+# Records the interpreter the workspace was provisioned with + whether the
+# project's suite can run there. Lives inside .git/ so it never lands in the
+# target repo's tracked tree. JSON: {"python": "3.14", "status": "ok"}.
+_TOOLCHAIN_MARKER = ".git/.roboco-toolchain"
+
+# pytest exit codes the runnability smoke interprets. A collection error (2) is
+# the interpreter-mismatch signature (imports fail under the wrong Python); 0/5
+# mean the suite is runnable; anything else is inconclusive (never 'broken').
+_PYTEST_OK = 0
+_PYTEST_NO_TESTS_COLLECTED = 5
+_PYTEST_COLLECTION_ERROR = 2
 
 
 def _lockfile_digest(workspace: Path) -> str | None:
@@ -264,8 +277,14 @@ def _lockfile_digest(workspace: Path) -> str | None:
     return h.hexdigest() if found else None
 
 
-def _detect_dep_commands(workspace: Path) -> list[tuple[str, list[str]]]:
+def _detect_dep_commands(
+    workspace: Path, target_python: str | None = None
+) -> list[tuple[str, list[str]]]:
     """Return the dev-dependency install commands for this workspace.
+
+    When ``target_python`` is given (toolchain matching enabled + the target
+    declares a version), the Python ``uv sync`` is pinned to that interpreter
+    via ``--python`` so uv fetches + uses it instead of the system 3.13.
 
     Detects project ecosystems by lockfile/manifest and returns
     ``(label, argv)`` tuples to run from the workspace root:
@@ -285,7 +304,10 @@ def _detect_dep_commands(workspace: Path) -> list[tuple[str, list[str]]]:
     commands: list[tuple[str, list[str]]] = []
 
     if (workspace / "pyproject.toml").is_file():
-        commands.append(("uv sync --extra dev", ["uv", "sync", "--extra", "dev"]))
+        argv = ["uv", "sync", "--extra", "dev"]
+        if target_python:
+            argv += ["--python", target_python]
+        commands.append(("uv sync --extra dev", argv))
 
     if (workspace / "pnpm-lock.yaml").is_file():
         commands.append(("pnpm install", ["pnpm", "install", "--frozen-lockfile"]))
@@ -905,7 +927,11 @@ class WorkspaceService:
         if not settings.workspace_install_dev_deps:
             return False
 
-        commands = _detect_dep_commands(workspace)
+        # When toolchain matching is on, provision against the target project's
+        # declared Python (uv resolves + fetches it) instead of the system 3.13.
+        target_python = self._resolve_toolchain_target(workspace)
+
+        commands = _detect_dep_commands(workspace, target_python=target_python)
         if not commands:
             return False
 
@@ -915,6 +941,9 @@ class WorkspaceService:
                 "Dev-deps install skipped (lockfiles unchanged)",
                 workspace=str(workspace),
             )
+            # Stamp the toolchain marker the first time it's missing so a
+            # workspace provisioned before the flag flipped still records it.
+            await self._record_toolchain(workspace, target_python, only_if_missing=True)
             return False
 
         any_ok = False
@@ -931,7 +960,91 @@ class WorkspaceService:
         # The install runs as root (orchestrator); hand the freshly written
         # .venv / node_modules back to the agent user.
         await asyncio.to_thread(_ensure_agent_owned, workspace)
+        await self._record_toolchain(workspace, target_python)
         return any_ok
+
+    @staticmethod
+    def _resolve_toolchain_target(workspace: Path) -> str | None:
+        """The Python version to provision with, or None (flag off / nothing
+        declared → today's behavior)."""
+        if not settings.toolchain_match_enabled:
+            return None
+        resolved = resolve_target_python(workspace)
+        return resolved.version if resolved else None
+
+    async def _record_toolchain(
+        self, workspace: Path, python: str | None, *, only_if_missing: bool = False
+    ) -> None:
+        """Run the runnability smoke and write the toolchain marker (best-effort).
+
+        Inert when ``python`` is None (flag off / no target version).
+        """
+        if python is None:
+            return
+        if only_if_missing and (workspace / _TOOLCHAIN_MARKER).is_file():
+            return
+        status = await self._run_toolchain_smoke(workspace, python)
+        with contextlib.suppress(OSError):
+            (workspace / _TOOLCHAIN_MARKER).write_text(
+                json.dumps({"python": python, "status": status})
+            )
+
+    @staticmethod
+    async def _run_toolchain_smoke(workspace: Path, python: str) -> str:
+        """Can the project's suite be collected under ``python``?
+
+        Returns ``ok`` (collected, or no tests), ``broken`` (collection/import
+        error — the interpreter-mismatch signature), or ``unknown`` (pytest
+        absent, tool missing, timeout — never block on these). Precision over
+        recall: only a genuine collection error reports ``broken``.
+        """
+        argv = [
+            "uv",
+            "run",
+            "--python",
+            python,
+            "python",
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+        ]
+
+        def _run() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                argv,
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                timeout=settings.workspace_dep_install_timeout_seconds,
+                check=False,
+            )
+
+        try:
+            result = await asyncio.to_thread(_run)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return "unknown"
+        if result.returncode in (_PYTEST_OK, _PYTEST_NO_TESTS_COLLECTED):
+            return "ok"
+        if result.returncode == _PYTEST_COLLECTION_ERROR:
+            return "broken"
+        return "unknown"
+
+    @staticmethod
+    def read_toolchain_status(workspace: Path) -> tuple[str | None, str | None]:
+        """Read ``(python, status)`` from the workspace toolchain marker.
+
+        ``(None, None)`` when no marker exists (flag off, not yet provisioned,
+        or unreadable) — callers must treat that as 'do not block'.
+        """
+        marker = workspace / _TOOLCHAIN_MARKER
+        if not marker.is_file():
+            return (None, None)
+        try:
+            data = json.loads(marker.read_text())
+        except (OSError, json.JSONDecodeError):
+            return (None, None)
+        return (data.get("python"), data.get("status"))
 
     @staticmethod
     def _dep_install_cache_hit(workspace: Path, digest: str | None) -> bool:
