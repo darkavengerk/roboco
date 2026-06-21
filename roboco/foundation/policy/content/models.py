@@ -27,7 +27,6 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
-    model_validator,
 )
 
 from roboco.foundation.identity import CELL_TEAMS, Team
@@ -159,16 +158,6 @@ class PrReviewContent(_Content):
     @classmethod
     def _nontrivial_summary(cls, v: str) -> str:
         return reject_trivial(v, field="summary", min_chars=_SUMMARY_MIN)
-
-    @model_validator(mode="after")
-    def _findings_required_for_negative(self) -> PrReviewContent:
-        if self.verdict in (Verdict.CHANGES_REQUESTED, Verdict.FAILED) and not (
-            self.findings
-        ):
-            raise ValueError(
-                "findings must be non-empty when verdict is changes_requested or failed"
-            )
-        return self
 
     def render_markdown(self) -> str:
         parts = [_section("Summary", self.summary)]

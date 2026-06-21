@@ -353,6 +353,7 @@ PR_REVIEW_SOURCES = ("external_pr", "internal_pr")
 # Approve-&-Starts it; the loop itself never starts/approves/merges it.
 SELF_HEAL_SOURCE = "self_heal"
 
+
 def extract_self_heal_fingerprint(task: Any) -> str | None:
     """The self-heal dedupe fingerprint from a task's markers, or None.
 
@@ -799,11 +800,7 @@ class TaskService(BaseService):
                 TaskTable.confirmed_by_human.is_(False),
             )
         )
-        return [
-            t
-            for t in result.scalars().all()
-            if not markers.is_dismissed(t)
-        ]
+        return [t for t in result.scalars().all() if not markers.is_dismissed(t)]
 
     async def list_external_pr_reviews(self) -> list[TaskTable]:
         """Live external-PR reviews for the panel: in-flight PLUS awaiting-decision.
@@ -830,11 +827,7 @@ class TaskService(BaseService):
                 ),
             )
         )
-        return [
-            t
-            for t in result.scalars().all()
-            if not markers.is_dismissed(t)
-        ]
+        return [t for t in result.scalars().all() if not markers.is_dismissed(t)]
 
     async def dismiss_external_pr_review(self, task_id: UUID) -> TaskTable | None:
         """CEO declines to act on a reviewed external PR — drop it from the queue.
@@ -905,8 +898,7 @@ class TaskService(BaseService):
             return None
         if task.status != TaskStatus.IN_PROGRESS:
             return None
-        if notes:
-            task.qa_notes = notes
+        self._record_pr_review(task, summary=notes, verdict="changes_requested")
         reviewer_id = to_python_uuid(task.claimed_by) or reviewer_agent_id
         task.assigned_to = None
         task.claimed_by = None
@@ -3641,6 +3633,35 @@ class TaskService(BaseService):
         if markers.get_documenter(task):
             return
         markers.set_documenter(task, task.assigned_to)
+
+    @staticmethod
+    def _record_pr_review(
+        task: TaskTable,
+        *,
+        summary: str | None,
+        verdict: str,
+        issues: list[str] | None = None,
+    ) -> None:
+        """Record a PR-reviewer verdict in the reviewer's OWN slot.
+
+        Routes through the content chokepoint (``pr_reviewer_notes`` mirror +
+        ``notes_structured["pr_review"]``) so a review never overwrites
+        ``qa_notes`` / ``dev_notes``. Structured per-line findings arrive via the
+        reviewer verb; until then the free-text summary + issues are captured.
+        Best-effort: a too-trivial review body must never block the transition.
+        """
+        body = (summary or "").strip()
+        if issues:
+            bullets = "\n".join(f"- {i}" for i in issues if i and i.strip())
+            body = f"{body}\n\n{bullets}".strip() if body else bullets
+        if not body:
+            return
+        try:
+            apply_structured_note(
+                task, "pr_review", {"summary": body, "verdict": verdict}
+            )
+        except ContentValidationError:
+            task.pr_reviewer_notes = _append_capped(task.pr_reviewer_notes, body)
 
     async def _resolve_pm_for_review(self, task: TaskTable) -> UUID | None:
         """Walk up the parent chain to find the PM who owns this work.
@@ -6704,8 +6725,7 @@ class TaskService(BaseService):
                 claimed_by=str(task.claimed_by),
             )
         captured = to_python_uuid(task.claimed_by)
-        if notes:
-            task.qa_notes = _append_capped(task.qa_notes, "[PR REVIEW]\n" + notes)
+        self._record_pr_review(task, summary=notes, verdict="passed")
         task.assigned_to = None
         task.claimed_by = None
         task.active_claimant_id = cast("Any", None)
@@ -6747,11 +6767,7 @@ class TaskService(BaseService):
                 claimed_by=str(task.claimed_by),
             )
         captured = to_python_uuid(task.claimed_by)
-        if issues:
-            issue_block = "[PR REVIEW ISSUES]\n" + "\n".join(f"- {i}" for i in issues)
-            task.dev_notes = _append_capped(task.dev_notes, issue_block)
-        if notes:
-            task.qa_notes = _append_capped(task.qa_notes, "[PR REVIEW]\n" + notes)
+        self._record_pr_review(task, summary=notes, verdict="failed", issues=issues)
         # Hand the failed assembled task to its PM to revise (cell PM for a cell
         # team, Main PM for the root); the revision dispatcher re-spawns whoever
         # owns a needs_revision task. Fall back to unassigned if no PM resolves.

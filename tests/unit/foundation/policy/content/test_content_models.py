@@ -95,16 +95,19 @@ def test_pr_review_trivial_summary_rejected() -> None:
         validate_content("pr_review", {"summary": "wip", "verdict": "approved"})
 
 
-def test_pr_review_negative_verdict_requires_findings() -> None:
-    with pytest.raises(ContentValidationError):
-        validate_content(
-            "pr_review",
-            {
-                "summary": "Looks broken but no detail given here.",
-                "verdict": "failed",
-                "findings": [],
-            },
-        )
+def test_pr_review_negative_verdict_allows_summary_only() -> None:
+    # A reviewer can fail on a summary alone (e.g. "CI is red"); findings are
+    # format-enforced (file/line/expected/actual) when present, not mandatory.
+    c = validate_content(
+        "pr_review",
+        {
+            "summary": "CI is red on this PR; the failing job blocks merge.",
+            "verdict": "failed",
+            "findings": [],
+        },
+    )
+    assert isinstance(c, PrReviewContent)
+    assert c.verdict.value == "failed"
 
 
 def test_pr_review_approved_allows_empty_findings() -> None:

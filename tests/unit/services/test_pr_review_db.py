@@ -247,12 +247,15 @@ async def test_pr_review_claim_and_complete(db_session: AsyncSession) -> None:
     # Re-claiming a non-pending task is a no-op.
     assert await svc.pr_review_claim(reviewer_id, task_id) is None
 
-    # Complete: in_progress -> completed, claim cleared, notes recorded.
+    # Complete: in_progress -> completed, claim cleared, review in its OWN slot.
     done = await svc.complete_review(reviewer_id, task_id, notes="Posted review.")
     await db_session.flush()
     assert done is not None
     assert done.status == TaskStatus.COMPLETED
-    assert done.qa_notes == "Posted review."
+    # Reviewer content lands in pr_reviewer_notes (not qa_notes) and is structured.
+    assert "Posted review." in (done.pr_reviewer_notes or "")
+    assert done.qa_notes is None
+    assert (done.notes_structured or {}).get("pr_review", {}).get("verdict")
     assert done.claimed_by is None
 
     # Re-completing a completed task is a no-op.
