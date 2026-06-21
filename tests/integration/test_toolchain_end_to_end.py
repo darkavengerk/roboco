@@ -19,6 +19,7 @@ from roboco.services.gateway.choreographer import Choreographer, ChoreographerDe
 from roboco.services.workspace import WorkspaceService
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 # requires-python needs 3.14 but the pin says 3.13 — the resolver must ignore
@@ -55,8 +56,10 @@ def _choreographer_for(status: str | None) -> Choreographer:
     return Choreographer(ChoreographerDeps(**base))
 
 
-def _fake_run(captured: list[list[str]], *, collect_rc: int):
-    def _run(argv, **_kw) -> subprocess.CompletedProcess[str]:
+def _fake_run(
+    captured: list[list[str]], *, collect_rc: int
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    def _run(argv: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
         captured.append(argv)
         rc = collect_rc if "--collect-only" in argv else 0
         return subprocess.CompletedProcess(argv, returncode=rc, stdout="", stderr="")
@@ -66,7 +69,7 @@ def _fake_run(captured: list[list[str]], *, collect_rc: int):
 
 @pytest.mark.asyncio
 async def test_broken_env_provisions_then_blocks_the_gate(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "toolchain_match_enabled", True)
     ws = _make_workspace(tmp_path)
@@ -96,7 +99,9 @@ async def test_broken_env_provisions_then_blocks_the_gate(
 
 
 @pytest.mark.asyncio
-async def test_ok_env_provisions_and_gate_proceeds(tmp_path: Path, monkeypatch) -> None:
+async def test_ok_env_provisions_and_gate_proceeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(settings, "toolchain_match_enabled", True)
     ws = _make_workspace(tmp_path)
     svc = _service()
@@ -119,7 +124,7 @@ async def test_ok_env_provisions_and_gate_proceeds(tmp_path: Path, monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_flag_off_provisions_today_and_never_blocks(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "toolchain_match_enabled", False)
     ws = _make_workspace(tmp_path)

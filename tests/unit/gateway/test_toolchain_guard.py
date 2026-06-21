@@ -32,7 +32,9 @@ def _make_choreographer(*, status: str | None) -> Choreographer:
 
 
 @pytest.mark.asyncio
-async def test_guard_blocks_when_broken_and_flag_on(monkeypatch) -> None:
+async def test_guard_blocks_when_broken_and_flag_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(settings, "toolchain_match_enabled", True)
     c = _make_choreographer(status="broken")
     env = await c._toolchain_broken_guard(uuid4(), MagicMock())
@@ -43,14 +45,16 @@ async def test_guard_blocks_when_broken_and_flag_on(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_guard_passes_when_ok(monkeypatch) -> None:
+async def test_guard_passes_when_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "toolchain_match_enabled", True)
     c = _make_choreographer(status="ok")
     assert await c._toolchain_broken_guard(uuid4(), MagicMock()) is None
 
 
 @pytest.mark.asyncio
-async def test_guard_passes_when_status_unknown_or_missing(monkeypatch) -> None:
+async def test_guard_passes_when_status_unknown_or_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(settings, "toolchain_match_enabled", True)
     for status in ("unknown", None):
         c = _make_choreographer(status=status)
@@ -58,7 +62,7 @@ async def test_guard_passes_when_status_unknown_or_missing(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_guard_inert_when_flag_off(monkeypatch) -> None:
+async def test_guard_inert_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "toolchain_match_enabled", False)
     c = _make_choreographer(status="broken")
     assert await c._toolchain_broken_guard(uuid4(), MagicMock()) is None

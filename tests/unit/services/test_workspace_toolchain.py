@@ -19,6 +19,7 @@ from roboco.services.workspace import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 _PY = '[project]\nname = "x"\nrequires-python = ">=3.14,<3.15"\n'
@@ -50,8 +51,10 @@ def test_detect_dep_commands_no_python_is_unchanged(tmp_path: Path) -> None:
     assert commands[0][1] == ["uv", "sync", "--extra", "dev"]
 
 
-def _fake_run_factory(captured: list[list[str]], *, collect_rc: int):
-    def _fake_run(argv, **_kw) -> subprocess.CompletedProcess[str]:
+def _fake_run_factory(
+    captured: list[list[str]], *, collect_rc: int
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    def _fake_run(argv: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
         captured.append(argv)
         rc = collect_rc if "--collect-only" in argv else 0
         return subprocess.CompletedProcess(argv, returncode=rc, stdout="", stderr="")
