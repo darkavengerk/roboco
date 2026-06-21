@@ -36,8 +36,13 @@ FROM python:3.13-slim-bookworm AS runner
 
 # Runtime deps: Node.js 22 for claude CLI, git for workspace ops, jq for hooks.
 # gnupg is only needed to add the NodeSource repo, purged after install.
+# build-essential stays at runtime (NOT purged): when toolchain matching is on,
+# uv provisions the agent's workspace against the TARGET project's Python and
+# must be able to compile an sdist for any dependency that ships no wheel for
+# that interpreter version. Without a compiler the install fails and the agent
+# can't run the target's suite.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git gnupg jq \
+    curl ca-certificates git gnupg jq build-essential \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g @anthropic-ai/claude-code \
