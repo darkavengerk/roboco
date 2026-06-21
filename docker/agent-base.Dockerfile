@@ -81,6 +81,12 @@ USER agent
 # a per-agent sandbox that only mounts its own workspace.
 RUN git config --global --add safe.directory '*'
 
+# Claude Code reads ~/.claude.json (a sibling FILE, not under ~/.claude/). The
+# orchestrator bind-mounts the host's copy over this when it exists; pre-create
+# an empty config so that when it doesn't, the CLI no longer logs "configuration
+# file not found" (3x) at every agent start (audit D-48). The CLI self-heals it.
+RUN echo '{}' > /home/agent/.claude.json
+
 # PYTHONUNBUFFERED: flush stdout/stderr immediately so the SDK driver's logs
 # (e.g. the intake agent's turn-received / streamed lines) reach `docker logs` in
 # real time instead of block-buffering until the container is reaped.
