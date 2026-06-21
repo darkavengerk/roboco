@@ -874,3 +874,105 @@ async def test_commit_gate_reads_settings_banned_words(
 
     env = await ca.commit(agent_id=uuid4(), message="bananaword")
     assert env.as_dict()["error"] == "invalid_state"
+
+
+# ---------------------------------------------------------------------------
+# Universal anti-soup guard — content-tool fields beyond say/dm/note/notify
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pitch_placeholder_title_rejected_before_role_check() -> None:
+    """A soupy pitch title lands nowhere — rejected before the Board role gate."""
+    deps = _make_deps()
+    ca = ContentActions(deps)
+
+    env = await ca.pitch(
+        agent_id=uuid4(),
+        title="wip",
+        slug="my-product",
+        problem="Users cannot reset their password without contacting support.",
+        proposed_solution="Add a self-service password reset flow with email tokens.",
+        target_cells=["backend"],
+    )
+
+    assert env.as_dict()["error"] == "invalid_state"
+    deps.task.agent_for.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_open_session_placeholder_topic_rejected() -> None:
+    """``open_session`` topic must be substantive, not 'tbd'."""
+    deps = _make_deps()
+    ca = ContentActions(deps)
+
+    env = await ca.open_session(
+        agent_id=uuid4(), task_id=uuid4(), channel="backend-cell", topic="tbd"
+    )
+
+    assert env.as_dict()["error"] == "invalid_state"
+    deps.task.agent_for.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pr_update_placeholder_body_rejected() -> None:
+    """``pr_update`` body, when supplied, must not be filler."""
+    deps = _make_deps()
+    ca = ContentActions(deps)
+
+    env = await ca.pr_update(agent_id=uuid4(), task_id=uuid4(), body="wip wip")
+
+    assert env.as_dict()["error"] == "invalid_state"
+    deps.task.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pr_update_substantive_body_passes_soup_guard() -> None:
+    """A real body clears the soup guard and proceeds to the (missing) PR check."""
+    task = AsyncMock()
+    task.get.return_value = None  # not_found short-circuits after the soup guard
+    deps = _make_deps(task=task)
+    ca = ContentActions(deps)
+
+    env = await ca.pr_update(
+        agent_id=uuid4(),
+        task_id=uuid4(),
+        body="Rebased onto master and resolved the migration conflict.",
+    )
+
+    assert env.as_dict()["error"] == "not_found"
+    deps.task.get.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_note_decision_rationale_soup_rejected() -> None:
+    """A provided-but-soupy decision narrative field is rejected."""
+    deps = _make_deps()
+    ca = ContentActions(deps)
+
+    env = await ca.note(
+        agent_id=uuid4(),
+        text="Chose asyncpg over psycopg for the connection pool.",
+        scope="decision",
+        structured={"rationale": "asdf"},
+    )
+
+    assert env.as_dict()["error"] == "invalid_state"
+    deps.journal.write_entry.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_note_decision_omitted_narrative_still_records() -> None:
+    """An omitted narrative field keeps its tolerant placeholder — note records."""
+    deps = _make_deps()
+    ca = ContentActions(deps)
+
+    env = await ca.note(
+        agent_id=uuid4(),
+        text="Chose asyncpg over psycopg for the connection pool.",
+        scope="decision",
+        structured={"context": "Need an async driver for the new pool."},
+    )
+
+    assert env.as_dict()["error"] is None
+    deps.journal.write_entry.assert_awaited()

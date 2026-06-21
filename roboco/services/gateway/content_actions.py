@@ -354,6 +354,50 @@ class ContentActions:
             )
         return None
 
+    @classmethod
+    def _reject_structured_soup(
+        cls, scope: str, structured: dict[str, Any] | None
+    ) -> Envelope | None:
+        """Soup-guard the scope's narrative sub-fields when the agent fills them.
+
+        Only *provided, non-empty* fields are checked — an omitted narrative
+        field keeps its tolerant ``(not provided)`` placeholder default (so a
+        thin note is never hard-rejected, preserving the do-server breaker
+        contract), but ``rationale='asdf'`` is soup and lands nowhere.
+        """
+        for field in _SCOPE_NARRATIVE_FIELDS.get(scope, ()):
+            value = (structured or {}).get(field)
+            if not (value and str(value).strip()):
+                continue
+            if rej := cls._reject_soup(str(value), field=field, min_chars=4):
+                return rej
+        return None
+
+    @classmethod
+    def _pr_update_input_check(
+        cls, title: str | None, body: str | None, reviewers: list[str] | None
+    ) -> Envelope | None:
+        """At-least-one-field + anti-soup gate for ``pr_update`` inputs.
+
+        Folds the no-op guard and the title/body soup guard into one call so
+        the verb body keeps its return count under the complexity bound.
+        """
+        if title is None and body is None and reviewers is None:
+            return Envelope.invalid_state(
+                message="no fields to update",
+                remediate=(
+                    "provide at least one of title, body, or reviewers; "
+                    "passing all None has no effect"
+                ),
+                context_briefing={},
+            )
+        for _pf, _pv, _min in (("title", title, 8), ("body", body, 15)):
+            if _pv is not None and (
+                rej := cls._reject_soup(_pv, field=_pf, min_chars=_min)
+            ):
+                return rej
+        return None
+
     async def commit(
         self,
         *,
@@ -516,6 +560,8 @@ class ContentActions:
                 remediate=f"scope must be one of: {sorted(_VALID_NOTE_SCOPES)}",
                 context_briefing={},
             )
+        if rej := self._reject_structured_soup(scope, structured):
+            return rej
         if task_id is not None:
             if reject := await self._verify_explicit_task_ownership(agent_id, task_id):
                 return reject
@@ -562,11 +608,12 @@ class ContentActions:
         proposal. On CEO approval the system provisions a repo per target cell,
         registers the projects, and seeds the first Main-PM task.
         """
-        for _pf, _pv in (
-            ("problem", problem),
-            ("proposed_solution", proposed_solution),
+        for _pf, _pv, _min in (
+            ("title", title, 5),
+            ("problem", problem, 15),
+            ("proposed_solution", proposed_solution, 15),
         ):
-            if rej := self._reject_soup(_pv, field=_pf, min_chars=15):
+            if rej := self._reject_soup(_pv, field=_pf, min_chars=_min):
                 return rej
         from pydantic import ValidationError as PydanticValidationError
 
@@ -1066,6 +1113,8 @@ class ContentActions:
         already has a primary session in the same channel, it reuses
         that session instead of opening a new one.
         """
+        if rej := self._reject_soup(topic, field="topic", min_chars=5):
+            return rej
         from roboco.models.session import (
             SessionForTasksCreate,
             SessionTaskRelationshipType,
@@ -1320,15 +1369,8 @@ class ContentActions:
             invalid_state — schema-level check is the first line of
             defense; this guard catches direct gateway calls)
         """
-        if title is None and body is None and reviewers is None:
-            return Envelope.invalid_state(
-                message="no fields to update",
-                remediate=(
-                    "provide at least one of title, body, or reviewers; "
-                    "passing all None has no effect"
-                ),
-                context_briefing={},
-            )
+        if rej := self._pr_update_input_check(title, body, reviewers):
+            return rej
         t = await self.task.get(task_id)
         if t is None:
             return Envelope.not_found(message=f"task {task_id} not found")
