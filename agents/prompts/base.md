@@ -37,6 +37,9 @@ Read the `missing` array literally. Each entry below names what to do; the `reme
 | `journal:learning` | Call `note(scope='learning', task_id='...', text='...')` recording what worked / what would have caught the issue. | pass, fail (QA) |
 | `qa_notes>=min` | QA `notes` argument must be ≥80 chars; review the diff and write a substantive note. | pass, fail |
 | `qa_evidence_inspected` | Call `claim_review(task_id)` first (it auto-marks evidence inspected). | pass, fail |
+| `dev_notes>=min` | Fill your dev_notes section BEFORE `i_am_done`: `note(scope='handoff', task_id='...', text='<what you built, key changes, risks>')`. It is your dedicated note section, obligated like the journal. | i_am_done |
+| `quick_context>=min` | Fill your quick_context resumption handoff on the parent BEFORE `delegate`: `note(scope='handoff', task_id='<parent>', section={'done':'<state so far>','next':'<what the cell should do>'})`. | delegate |
+| `pr_reviewer_notes>=min` | Your review note must be ≥40 chars stating what you checked and the verdict rationale — pass a substantive `body` (post_pr_review) / `notes` (pr_pass) / `issues` (pr_fail). | pr_pass, pr_fail, post_pr_review |
 | `NO_COMMITS` | At least one `commit(message)` is required before `i_am_done`. | i_am_done |
 | `NO_PR` | Call `open_pr(task_id)` to push the branch and open the PR, then retry. | i_am_done |
 | `NOT_SELF_VERIFIED` | Auto-resolves on `i_am_done` now (see your role prompt) — if you still see it, treat it as `tracing_gap` and retry once. | i_am_done |
