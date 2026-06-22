@@ -1,0 +1,163 @@
+# Architectural conventions for RoboCo.
+# Repo-canonical: this file overlays the auto-derived scan, and every consumer
+# (the validator, the per-task constraints, the ambient prompt block) reads the
+# merged effective map. Edit freely; the panel's Conventions tab round-trips it.
+#
+# Convention vs. claude-agent-runway: RoboCo keeps `no_inline_comments` at WARN,
+# not block. The codebase deliberately documents intent in-line and in module /
+# function docstrings, so comments are welcome and never strand a task; the gate
+# only nudges. The runway "no lint suppressions" rule is honoured but currently
+# WARN (see the rule note below) until the ~18 existing pydantic-required
+# suppressions migrate to pyproject config, at which point it returns to block.
+
+version: 1
+languages:
+  - python
+  - typescript
+
+modules:
+  # --- Backend: roboco/ --------------------------------------------------------
+  - path: roboco/models
+    purpose: SQLAlchemy + Pydantic data models
+    forbidden:
+      - route
+  - path: roboco/api
+    purpose: API package wiring — app, deps, middleware, websocket (helpers welcome)
+    forbidden:
+      - model
+  - path: roboco/api/routes
+    purpose: HTTP routes only — thin handlers that delegate to services
+    forbidden:
+      - model
+      - helper
+  - path: roboco/api/schemas
+    purpose: API request / response schemas
+    forbidden:
+      - route
+  - path: roboco/api/utils
+    purpose: API-layer helpers / utilities
+    forbidden:
+      - route
+      - component
+  - path: roboco/mcp/schemas
+    purpose: MCP tool input / output schemas
+    forbidden:
+      - route
+  - path: roboco/services
+    purpose: business logic, DB writes, side effects — the only layer that owns them
+    forbidden:
+      - route
+  - path: roboco/utils
+    purpose: shared, side-effect-free helpers
+    forbidden:
+      - route
+      - component
+
+  # --- Frontend: panel/ --------------------------------------------------------
+  - path: panel/src/components
+    purpose: presentational UI components
+    forbidden:
+      - model
+      - route
+  - path: panel/src/hooks
+    purpose: React hooks — data fetching + state, no JSX
+    forbidden:
+      - component
+      - model
+      - route
+  - path: panel/src/store
+    purpose: client-side state management
+    forbidden:
+      - component
+      - route
+  - path: panel/src/lib/stores
+    purpose: client-side state management
+    forbidden:
+      - component
+      - route
+  - path: panel/src/lib/api
+    purpose: typed API client
+    forbidden:
+      - model
+  - path: panel/src/lib
+    purpose: shared frontend helpers / utilities
+    forbidden:
+      - route
+      - component
+  - path: panel/lib
+    purpose: shared frontend helpers / utilities
+    forbidden:
+      - route
+      - component
+
+  # --- Neutralized: tests + docs own no placement rules ------------------------
+  # The auto-scan treats any dir named api/models/services/utils/schemas/routes
+  # as an enforceable code module. Under tests/ and docs/ that is wrong: test
+  # modules legitimately define fixtures, fakes, and helper functions, and docs/
+  # is the MkDocs site (markdown, never classified). These overrides switch off
+  # placement there so a test or docs task is never stranded. Longest-prefix wins,
+  # so each derived sub-path is neutralized explicitly.
+  - path: tests/unit/api
+    purpose: tests — any kind may be defined
+    forbidden: []
+  - path: tests/unit/api/routes
+    purpose: tests — any kind may be defined
+    forbidden: []
+  - path: tests/unit/api/schemas
+    purpose: tests — any kind may be defined
+    forbidden: []
+  - path: tests/unit/models
+    purpose: tests — any kind may be defined
+    forbidden: []
+  - path: tests/unit/services
+    purpose: tests — any kind may be defined
+    forbidden: []
+  - path: tests/unit/utils
+    purpose: tests — any kind may be defined
+    forbidden: []
+  - path: docs/api
+    purpose: documentation site — not code
+    forbidden: []
+  - path: docs/models
+    purpose: documentation site — not code
+    forbidden: []
+
+rules:
+  # Posture: BLOCK every boundary this codebase already honors (real teeth, zero
+  # false-strands), WARN the boundaries that still carry debt so a task is never
+  # stranded on pre-existing code. Every placement rule not named here inherits
+  # the derived BLOCK level — e.g. a route in roboco/services, a model in a panel
+  # component, or a hook returning JSX is refused outright.
+  #
+  # Hygiene
+  no_lint_suppressions:
+    # ~18 live in roboco/ today, most pydantic-required (computed_field
+    # prop-decorator, TC003 runtime types). WARN until they migrate to pyproject
+    # per-file-ignores / mypy overrides, then this returns to block.
+    level: warn
+  no_inline_comments:
+    # RoboCo documents intent in-code; comments are welcome and never block.
+    level: warn
+  # Placement debt — clean these up, then promote back to block
+  no_models_in_routes:
+    # Inline request/response models in *_live.py belong in roboco/api/schemas.
+    level: warn
+  no_helpers_in_routes:
+    # Local _-prefixed route helpers; tighten once they move to services/utils.
+    level: warn
+  # Modularity
+  modular_cohesion:
+    # Same root as no_models_in_routes (a file with both a model and a route).
+    level: warn
+  thin_routes:
+    # RoboCo routes deliberately call db.commit() (get_db auto-commit is
+    # unreliable under BaseHTTPMiddleware) and the check counts commit as data
+    # access — so this stays advisory rather than blocking the commit convention.
+    level: warn
+  thin_components:
+    level: warn
+  god_class:
+    level: warn
+
+custom: []
+waivers: []
