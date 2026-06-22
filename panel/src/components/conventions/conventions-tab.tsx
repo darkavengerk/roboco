@@ -5,7 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   conventionsApi,
   type ConventionsActionResult,
+  type ConventionsCustomRule,
+  type ConventionsModule,
   type ConventionsStandard,
+  type ConventionsWaiver,
+  type DefinitionKind,
   type RuleLevel,
 } from "@/lib/api/conventions";
 import {
@@ -17,8 +21,17 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+
+const FORBIDDABLE_KINDS: DefinitionKind[] = [
+  "model",
+  "route",
+  "helper",
+  "business_logic",
+  "component",
+];
 
 function actionToast(verb: string, result: ConventionsActionResult): void {
   if (result.created && result.pr_number != null) {
@@ -87,11 +100,50 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
     );
   }
 
+  const edit = (next: Partial<ConventionsStandard>) =>
+    setDraft({ ...standard, ...next });
+
   const setRuleLevel = (name: string, level: RuleLevel) =>
-    setDraft({
-      ...standard,
-      rules: { ...standard.rules, [name]: { name, level } },
+    edit({ rules: { ...standard.rules, [name]: { name, level } } });
+
+  const updateModule = (index: number, next: Partial<ConventionsModule>) =>
+    edit({
+      modules: standard.modules.map((m, i) => (i === index ? { ...m, ...next } : m)),
     });
+  const addModule = () =>
+    edit({ modules: [...standard.modules, { path: "", purpose: "", forbidden: [] }] });
+  const removeModule = (index: number) =>
+    edit({ modules: standard.modules.filter((_, i) => i !== index) });
+  const toggleForbidden = (index: number, kind: DefinitionKind) => {
+    const current = standard.modules[index].forbidden;
+    const forbidden = current.includes(kind)
+      ? current.filter((k) => k !== kind)
+      : [...current, kind];
+    updateModule(index, { forbidden });
+  };
+
+  const updateCustom = (index: number, next: Partial<ConventionsCustomRule>) =>
+    edit({
+      custom: standard.custom.map((c, i) => (i === index ? { ...c, ...next } : c)),
+    });
+  const addCustom = () =>
+    edit({
+      custom: [
+        ...standard.custom,
+        { id: "", pattern: "", message: "", level: "warn", languages: [] },
+      ],
+    });
+  const removeCustom = (index: number) =>
+    edit({ custom: standard.custom.filter((_, i) => i !== index) });
+
+  const updateWaiver = (index: number, next: Partial<ConventionsWaiver>) =>
+    edit({
+      waivers: standard.waivers.map((w, i) => (i === index ? { ...w, ...next } : w)),
+    });
+  const addWaiver = () =>
+    edit({ waivers: [...standard.waivers, { path: "", rule: "", reason: "" }] });
+  const removeWaiver = (index: number) =>
+    edit({ waivers: standard.waivers.filter((_, i) => i !== index) });
 
   const status = data.health.status;
   // "degraded" is the only problem state: a committed file that won't parse.
@@ -133,31 +185,57 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
         <CardHeader>
           <CardTitle className="text-sm">Module boundaries</CardTitle>
           <CardDescription>
-            Which definition kinds are forbidden in each module.
+            Which definition kinds are forbidden in each module. Click a kind to
+            toggle it.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-3">
           {standard.modules.length === 0 && (
             <p className="text-sm text-muted-foreground">No modules mapped yet.</p>
           )}
-          {standard.modules.map((module) => (
+          {standard.modules.map((module, index) => (
             <div
-              key={module.path}
-              className="flex items-start justify-between gap-4 text-sm"
+              key={index}
+              className="space-y-2 rounded-md border border-border p-3"
             >
-              <div className="min-w-0">
-                <code>{module.path}</code>{" "}
-                <span className="text-muted-foreground">— {module.purpose}</span>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={module.path}
+                  placeholder="path/to/module"
+                  onChange={(e) => updateModule(index, { path: e.target.value })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeModule(index)}
+                >
+                  Remove
+                </Button>
               </div>
-              <div className="flex flex-wrap justify-end gap-1">
-                {module.forbidden.map((kind) => (
-                  <Badge key={kind} variant="secondary">
+              <Input
+                value={module.purpose}
+                placeholder="what this module is for"
+                onChange={(e) => updateModule(index, { purpose: e.target.value })}
+              />
+              <div className="flex flex-wrap gap-1">
+                {FORBIDDABLE_KINDS.map((kind) => (
+                  <Badge
+                    key={kind}
+                    variant={
+                      module.forbidden.includes(kind) ? "destructive" : "outline"
+                    }
+                    className="cursor-pointer"
+                    onClick={() => toggleForbidden(index, kind)}
+                  >
                     no {kind}
                   </Badge>
                 ))}
               </div>
             </div>
           ))}
+          <Button variant="outline" size="sm" onClick={addModule}>
+            Add module
+          </Button>
         </CardContent>
       </Card>
 
@@ -193,6 +271,106 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-sm">Custom rules</CardTitle>
+          <CardDescription>
+            Project-specific regex rules — a pattern, a message, and a level.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {standard.custom.map((rule, index) => (
+            <div
+              key={index}
+              className="space-y-2 rounded-md border border-border p-3"
+            >
+              <div className="flex items-center gap-2">
+                <Input
+                  value={rule.id}
+                  placeholder="rule-id"
+                  onChange={(e) => updateCustom(index, { id: e.target.value })}
+                />
+                <span className="w-10 text-right text-xs text-muted-foreground">
+                  {rule.level}
+                </span>
+                <Switch
+                  checked={rule.level === "block"}
+                  onCheckedChange={(checked) =>
+                    updateCustom(index, { level: checked ? "block" : "warn" })
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeCustom(index)}
+                >
+                  Remove
+                </Button>
+              </div>
+              <Input
+                value={rule.pattern}
+                placeholder="regex pattern"
+                onChange={(e) => updateCustom(index, { pattern: e.target.value })}
+              />
+              <Input
+                value={rule.message}
+                placeholder="message shown when it matches"
+                onChange={(e) => updateCustom(index, { message: e.target.value })}
+              />
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={addCustom}>
+            Add custom rule
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Waivers</CardTitle>
+          <CardDescription>
+            Accountable escapes — exempt a file from a rule with a reason
+            (reviewed in the PR, never a silent in-code suppression).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {standard.waivers.map((waiver, index) => (
+            <div
+              key={index}
+              className="space-y-2 rounded-md border border-border p-3"
+            >
+              <div className="flex items-center gap-2">
+                <Input
+                  value={waiver.path}
+                  placeholder="path/to/file.py"
+                  onChange={(e) => updateWaiver(index, { path: e.target.value })}
+                />
+                <Input
+                  value={waiver.rule}
+                  placeholder="rule name"
+                  onChange={(e) => updateWaiver(index, { rule: e.target.value })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeWaiver(index)}
+                >
+                  Remove
+                </Button>
+              </div>
+              <Input
+                value={waiver.reason}
+                placeholder="why this is waived"
+                onChange={(e) => updateWaiver(index, { reason: e.target.value })}
+              />
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={addWaiver}>
+            Add waiver
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-sm">Recent violations</CardTitle>
           <CardDescription>
             The latest findings recorded across this project&apos;s tasks.
@@ -215,7 +393,9 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
                 </code>{" "}
                 <span className="text-muted-foreground">{finding.message}</span>
               </div>
-              <Badge variant={finding.level === "block" ? "destructive" : "secondary"}>
+              <Badge
+                variant={finding.level === "block" ? "destructive" : "secondary"}
+              >
                 {finding.rule}
               </Badge>
             </div>
