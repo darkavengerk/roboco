@@ -1712,6 +1712,21 @@ class Choreographer:
         if not _settings.toolchain_match_enabled:
             return None
         status = await self.git.toolchain_status_for_task(agent_id, task)
+        if status == "unknown":
+            # Fail-open (precision over recall) but never silent: a recorded
+            # 'unknown' means provisioning ran yet the smoke could not confirm
+            # the suite is collectable under the interpreter — a possible hollow
+            # pass. Surface it so an operator can see the gate proceeded blind.
+            logger.warning(
+                "toolchain.unverified_gate_pass",
+                agent_id=str(agent_id),
+                task_id=str(getattr(task, "id", "")),
+                detail=(
+                    "gate proceeding past an unverified toolchain — the "
+                    "workspace smoke could not confirm the project's suite is "
+                    "collectable under the provisioned interpreter"
+                ),
+            )
         if status != "broken":
             return None
         return Envelope.invalid_state(

@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 from roboco.config import settings
 from roboco.services.gateway.choreographer import Choreographer, ChoreographerDeps
+from structlog.testing import capture_logs
 
 
 def _make_choreographer(*, status: str | None) -> Choreographer:
@@ -68,3 +69,27 @@ async def test_guard_inert_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> Non
     assert await c._toolchain_broken_guard(uuid4(), MagicMock()) is None
     # Flag off => the workspace is never consulted at all.
     c.git.toolchain_status_for_task.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_guard_warns_loudly_on_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 'unknown' still fails open (never strands a task), but it must not be
+    # silent — a warning is emitted so the hollow pass is visible to operators.
+    monkeypatch.setattr(settings, "toolchain_match_enabled", True)
+    c = _make_choreographer(status="unknown")
+    with capture_logs() as logs:
+        env = await c._toolchain_broken_guard(uuid4(), MagicMock())
+    assert env is None
+    assert any(e.get("event") == "toolchain.unverified_gate_pass" for e in logs)
+
+
+@pytest.mark.asyncio
+async def test_guard_silent_when_no_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No marker (None) is benign — flag on but not yet provisioned / not a test
+    # project — and must stay silent so the warning means something.
+    monkeypatch.setattr(settings, "toolchain_match_enabled", True)
+    c = _make_choreographer(status=None)
+    with capture_logs() as logs:
+        env = await c._toolchain_broken_guard(uuid4(), MagicMock())
+    assert env is None
+    assert not any(e.get("event") == "toolchain.unverified_gate_pass" for e in logs)
