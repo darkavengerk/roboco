@@ -22,12 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConventionsTab } from "@/components/conventions/conventions-tab";
 import { Key, KeyRound } from "lucide-react";
 import { toast } from "sonner";
@@ -65,10 +60,16 @@ function EditProjectForm({
   const [isActive, setIsActive] = useState(project.is_active);
   const [testCommand, setTestCommand] = useState(project.test_command || "");
   const [lintCommand, setLintCommand] = useState(project.lint_command || "");
-  const [formatCommand, setFormatCommand] = useState(project.format_command || "");
-  const [typecheckCommand, setTypecheckCommand] = useState(project.typecheck_command || "");
+  const [formatCommand, setFormatCommand] = useState(
+    project.format_command || "",
+  );
+  const [typecheckCommand, setTypecheckCommand] = useState(
+    project.typecheck_command || "",
+  );
   const [buildCommand, setBuildCommand] = useState(project.build_command || "");
-  const [qualityCommand, setQualityCommand] = useState(project.quality_command || "");
+  const [qualityCommand, setQualityCommand] = useState(
+    project.quality_command || "",
+  );
 
   // Token handling
   const [newToken, setNewToken] = useState("");
@@ -113,7 +114,7 @@ function EditProjectForm({
       onSuccess();
     } catch (error) {
       toast.error(
-        `Failed to update project: ${error instanceof Error ? error.message : "Unknown error"}`
+        `Failed to update project: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   };
@@ -122,7 +123,9 @@ function EditProjectForm({
     <form onSubmit={handleSubmit}>
       <DialogHeader>
         <DialogTitle>Edit Project</DialogTitle>
-        <DialogDescription>Update project settings. Slug cannot be changed.</DialogDescription>
+        <DialogDescription>
+          Update project settings. Slug cannot be changed.
+        </DialogDescription>
       </DialogHeader>
       <div className="grid gap-4 py-4">
         {/* Slug (read-only) */}
@@ -165,18 +168,25 @@ function EditProjectForm({
               {project.has_git_token ? (
                 <>
                   <Key className="h-4 w-4 text-green-500" />
-                  <span className="text-green-600 dark:text-green-400">Token is set</span>
+                  <span className="text-green-600 dark:text-green-400">
+                    Token is set
+                  </span>
                 </>
               ) : (
                 <>
                   <KeyRound className="h-4 w-4 text-amber-500" />
-                  <span className="text-amber-600 dark:text-amber-400">No token configured</span>
+                  <span className="text-amber-600 dark:text-amber-400">
+                    No token configured
+                  </span>
                 </>
               )}
             </Label>
             {project.has_git_token && (
               <div className="flex items-center gap-2">
-                <Label htmlFor="clear-token" className="text-xs text-muted-foreground">
+                <Label
+                  htmlFor="clear-token"
+                  className="text-xs text-muted-foreground"
+                >
                   Clear token
                 </Label>
                 <Switch
@@ -204,7 +214,8 @@ function EditProjectForm({
                 placeholder="ghp_xxxxxxxxxxxx..."
               />
               <p className="text-xs text-muted-foreground">
-                Personal access token with repo access for clone, push, and PR operations
+                Personal access token with repo access for clone, push, and PR
+                operations
               </p>
             </div>
           )}
@@ -213,7 +224,10 @@ function EditProjectForm({
         {/* Assigned Cell */}
         <div className="grid gap-2">
           <Label htmlFor="assigned_cell">Assigned Cell *</Label>
-          <Select value={assignedCell} onValueChange={(value: Team) => setAssignedCell(value)}>
+          <Select
+            value={assignedCell}
+            onValueChange={(value: Team) => setAssignedCell(value)}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Select cell" />
             </SelectTrigger>
@@ -241,7 +255,11 @@ function EditProjectForm({
         {/* Active Status */}
         <div className="flex items-center justify-between">
           <Label htmlFor="is_active">Active</Label>
-          <Switch id="is_active" checked={isActive} onCheckedChange={setIsActive} />
+          <Switch
+            id="is_active"
+            checked={isActive}
+            onCheckedChange={setIsActive}
+          />
         </div>
 
         {/* Advanced Options Toggle */}
@@ -315,8 +333,8 @@ function EditProjectForm({
                 placeholder="make gate"
               />
               <p className="text-xs text-muted-foreground">
-                Fast pre-submit gate (lint + types + complexity, no tests) run in
-                the dev&apos;s workspace at hand-off to QA.
+                Fast pre-submit gate (lint + types + complexity, no tests) run
+                in the dev&apos;s workspace at hand-off to QA.
               </p>
             </div>
           </>
@@ -335,12 +353,25 @@ function EditProjectForm({
 }
 
 // Main dialog component - handles data fetching and dialog state
-export function EditProjectDialog({ projectId, open, onOpenChange }: EditProjectDialogProps) {
+export function EditProjectDialog({
+  projectId,
+  open,
+  onOpenChange,
+}: EditProjectDialogProps) {
   const { data: project, isLoading } = useProject(projectId);
+  const [tab, setTab] = useState("settings");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[525px] max-h-[90vh] overflow-y-auto">
+      {/* Settings is a compact form; Conventions uses a two-column grid, so it
+          gets a wider, responsive modal (capped so it stays sane on a 27"). */}
+      <DialogContent
+        className={`max-h-[90vh] overflow-y-auto ${
+          tab === "conventions"
+            ? "sm:max-w-2xl lg:max-w-5xl xl:max-w-6xl"
+            : "sm:max-w-[525px]"
+        }`}
+      >
         {isLoading ? (
           <div className="space-y-4 py-4">
             <Skeleton className="h-8 w-48" />
@@ -349,7 +380,7 @@ export function EditProjectDialog({ projectId, open, onOpenChange }: EditProject
             <Skeleton className="h-10 w-full" />
           </div>
         ) : project ? (
-          <Tabs defaultValue="settings">
+          <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="settings">Settings</TabsTrigger>
               <TabsTrigger value="conventions">Conventions</TabsTrigger>
@@ -368,7 +399,9 @@ export function EditProjectDialog({ projectId, open, onOpenChange }: EditProject
             </TabsContent>
           </Tabs>
         ) : (
-          <div className="py-8 text-center text-muted-foreground">Project not found</div>
+          <div className="py-8 text-center text-muted-foreground">
+            Project not found
+          </div>
         )}
       </DialogContent>
     </Dialog>

@@ -35,7 +35,9 @@ const FORBIDDABLE_KINDS: DefinitionKind[] = [
 
 function actionToast(verb: string, result: ConventionsActionResult): void {
   if (result.created && result.pr_number != null) {
-    toast.success(`${verb}: opened PR #${result.pr_number} on ${result.branch}`);
+    toast.success(
+      `${verb}: opened PR #${result.pr_number} on ${result.branch}`,
+    );
   } else {
     toast.success(
       `${verb}: prepared on ${result.branch} (no remote PR — workspace not cloned)`,
@@ -108,10 +110,14 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
 
   const updateModule = (index: number, next: Partial<ConventionsModule>) =>
     edit({
-      modules: standard.modules.map((m, i) => (i === index ? { ...m, ...next } : m)),
+      modules: standard.modules.map((m, i) =>
+        i === index ? { ...m, ...next } : m,
+      ),
     });
   const addModule = () =>
-    edit({ modules: [...standard.modules, { path: "", purpose: "", forbidden: [] }] });
+    edit({
+      modules: [...standard.modules, { path: "", purpose: "", forbidden: [] }],
+    });
   const removeModule = (index: number) =>
     edit({ modules: standard.modules.filter((_, i) => i !== index) });
   const toggleForbidden = (index: number, kind: DefinitionKind) => {
@@ -124,7 +130,9 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
 
   const updateCustom = (index: number, next: Partial<ConventionsCustomRule>) =>
     edit({
-      custom: standard.custom.map((c, i) => (i === index ? { ...c, ...next } : c)),
+      custom: standard.custom.map((c, i) =>
+        i === index ? { ...c, ...next } : c,
+      ),
     });
   const addCustom = () =>
     edit({
@@ -138,10 +146,14 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
 
   const updateWaiver = (index: number, next: Partial<ConventionsWaiver>) =>
     edit({
-      waivers: standard.waivers.map((w, i) => (i === index ? { ...w, ...next } : w)),
+      waivers: standard.waivers.map((w, i) =>
+        i === index ? { ...w, ...next } : w,
+      ),
     });
   const addWaiver = () =>
-    edit({ waivers: [...standard.waivers, { path: "", rule: "", reason: "" }] });
+    edit({
+      waivers: [...standard.waivers, { path: "", rule: "", reason: "" }],
+    });
   const removeWaiver = (index: number) =>
     edit({ waivers: standard.waivers.filter((_, i) => i !== index) });
 
@@ -151,6 +163,240 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
   // apply and are already enforced — so it must not be flagged as an error.
   const degraded = status === "degraded";
   const usingDefaults = status === "missing" || status === "unknown";
+
+  const moduleBoundaries = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Module boundaries</CardTitle>
+        <CardDescription>
+          Which definition kinds are forbidden in each module. Click a kind to
+          toggle it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {standard.modules.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No modules mapped yet.
+          </p>
+        )}
+        {standard.modules.map((module, index) => (
+          <div
+            key={index}
+            className="space-y-2 rounded-md border border-border p-3"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                value={module.path}
+                placeholder="path/to/module"
+                onChange={(e) => updateModule(index, { path: e.target.value })}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => removeModule(index)}
+              >
+                Remove
+              </Button>
+            </div>
+            <Input
+              value={module.purpose}
+              placeholder="what this module is for"
+              onChange={(e) => updateModule(index, { purpose: e.target.value })}
+            />
+            <div className="flex flex-wrap gap-1">
+              {FORBIDDABLE_KINDS.map((kind) => (
+                <Badge
+                  key={kind}
+                  variant={
+                    module.forbidden.includes(kind) ? "destructive" : "outline"
+                  }
+                  className="cursor-pointer"
+                  onClick={() => toggleForbidden(index, kind)}
+                >
+                  no {kind}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ))}
+        <Button variant="outline" size="sm" onClick={addModule}>
+          Add module
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  const rules = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Rules</CardTitle>
+        <CardDescription>
+          Toggle a rule between warn (advisory) and block (refuses the gate).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Object.values(standard.rules).map((rule) => (
+          <div
+            key={rule.name}
+            className="flex items-center justify-between gap-4"
+          >
+            <span className="text-sm">{rule.name.replace(/_/g, " ")}</span>
+            <div className="flex items-center gap-2">
+              <span className="w-10 text-right text-xs text-muted-foreground">
+                {rule.level}
+              </span>
+              <Switch
+                checked={rule.level === "block"}
+                onCheckedChange={(checked) =>
+                  setRuleLevel(rule.name, checked ? "block" : "warn")
+                }
+              />
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+
+  const waivers = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Waivers</CardTitle>
+        <CardDescription>
+          Accountable escapes — exempt a file from a rule with a reason
+          (reviewed in the PR, never a silent in-code suppression).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {standard.waivers.map((waiver, index) => (
+          <div
+            key={index}
+            className="space-y-2 rounded-md border border-border p-3"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                value={waiver.path}
+                placeholder="path/to/file.py"
+                onChange={(e) => updateWaiver(index, { path: e.target.value })}
+              />
+              <Input
+                value={waiver.rule}
+                placeholder="rule name"
+                onChange={(e) => updateWaiver(index, { rule: e.target.value })}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => removeWaiver(index)}
+              >
+                Remove
+              </Button>
+            </div>
+            <Input
+              value={waiver.reason}
+              placeholder="why this is waived"
+              onChange={(e) => updateWaiver(index, { reason: e.target.value })}
+            />
+          </div>
+        ))}
+        <Button variant="outline" size="sm" onClick={addWaiver}>
+          Add waiver
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  const customRules = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Custom rules</CardTitle>
+        <CardDescription>
+          Project-specific regex rules — a pattern, a message, and a level.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {standard.custom.map((rule, index) => (
+          <div
+            key={index}
+            className="space-y-2 rounded-md border border-border p-3"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                value={rule.id}
+                placeholder="rule-id"
+                onChange={(e) => updateCustom(index, { id: e.target.value })}
+              />
+              <span className="w-10 text-right text-xs text-muted-foreground">
+                {rule.level}
+              </span>
+              <Switch
+                checked={rule.level === "block"}
+                onCheckedChange={(checked) =>
+                  updateCustom(index, { level: checked ? "block" : "warn" })
+                }
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => removeCustom(index)}
+              >
+                Remove
+              </Button>
+            </div>
+            <Input
+              value={rule.pattern}
+              placeholder="regex pattern"
+              onChange={(e) => updateCustom(index, { pattern: e.target.value })}
+            />
+            <Input
+              value={rule.message}
+              placeholder="message shown when it matches"
+              onChange={(e) => updateCustom(index, { message: e.target.value })}
+            />
+          </div>
+        ))}
+        <Button variant="outline" size="sm" onClick={addCustom}>
+          Add custom rule
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  const recentViolations = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">Recent violations</CardTitle>
+        <CardDescription>
+          The latest findings recorded across this project&apos;s tasks.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {(!findings || findings.length === 0) && (
+          <p className="text-sm text-muted-foreground">
+            No violations recorded yet.
+          </p>
+        )}
+        {(findings ?? []).map((finding, index) => (
+          <div
+            key={`${finding.file}:${finding.line}:${finding.rule}:${index}`}
+            className="flex items-start justify-between gap-4 text-sm"
+          >
+            <div className="min-w-0">
+              <code>
+                {finding.file}:{finding.line}
+              </code>{" "}
+              <span className="text-muted-foreground">{finding.message}</span>
+            </div>
+            <Badge
+              variant={finding.level === "block" ? "destructive" : "secondary"}
+            >
+              {finding.rule}
+            </Badge>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-4 py-2">
@@ -171,7 +417,9 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
       {usingDefaults && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Using auto-derived defaults</CardTitle>
+            <CardTitle className="text-sm">
+              Using auto-derived defaults
+            </CardTitle>
             <CardDescription>
               No <code>.roboco/conventions.yml</code> is committed yet. These
               rules are auto-derived from the repository and are already
@@ -181,227 +429,18 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Module boundaries</CardTitle>
-          <CardDescription>
-            Which definition kinds are forbidden in each module. Click a kind to
-            toggle it.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {standard.modules.length === 0 && (
-            <p className="text-sm text-muted-foreground">No modules mapped yet.</p>
-          )}
-          {standard.modules.map((module, index) => (
-            <div
-              key={index}
-              className="space-y-2 rounded-md border border-border p-3"
-            >
-              <div className="flex items-center gap-2">
-                <Input
-                  value={module.path}
-                  placeholder="path/to/module"
-                  onChange={(e) => updateModule(index, { path: e.target.value })}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeModule(index)}
-                >
-                  Remove
-                </Button>
-              </div>
-              <Input
-                value={module.purpose}
-                placeholder="what this module is for"
-                onChange={(e) => updateModule(index, { purpose: e.target.value })}
-              />
-              <div className="flex flex-wrap gap-1">
-                {FORBIDDABLE_KINDS.map((kind) => (
-                  <Badge
-                    key={kind}
-                    variant={
-                      module.forbidden.includes(kind) ? "destructive" : "outline"
-                    }
-                    className="cursor-pointer"
-                    onClick={() => toggleForbidden(index, kind)}
-                  >
-                    no {kind}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={addModule}>
-            Add module
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Two columns on wide viewports so the modal isn't a long single column;
+          Module boundaries | Rules, then Waivers | Custom rules. Each cell keeps
+          its natural height (items-start) and stacks to one column on mobile. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
+        {moduleBoundaries}
+        {rules}
+        {waivers}
+        {customRules}
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Rules</CardTitle>
-          <CardDescription>
-            Toggle a rule between warn (advisory) and block (refuses the gate).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {Object.values(standard.rules).map((rule) => (
-            <div
-              key={rule.name}
-              className="flex items-center justify-between gap-4"
-            >
-              <span className="text-sm">{rule.name.replace(/_/g, " ")}</span>
-              <div className="flex items-center gap-2">
-                <span className="w-10 text-right text-xs text-muted-foreground">
-                  {rule.level}
-                </span>
-                <Switch
-                  checked={rule.level === "block"}
-                  onCheckedChange={(checked) =>
-                    setRuleLevel(rule.name, checked ? "block" : "warn")
-                  }
-                />
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Custom rules</CardTitle>
-          <CardDescription>
-            Project-specific regex rules — a pattern, a message, and a level.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {standard.custom.map((rule, index) => (
-            <div
-              key={index}
-              className="space-y-2 rounded-md border border-border p-3"
-            >
-              <div className="flex items-center gap-2">
-                <Input
-                  value={rule.id}
-                  placeholder="rule-id"
-                  onChange={(e) => updateCustom(index, { id: e.target.value })}
-                />
-                <span className="w-10 text-right text-xs text-muted-foreground">
-                  {rule.level}
-                </span>
-                <Switch
-                  checked={rule.level === "block"}
-                  onCheckedChange={(checked) =>
-                    updateCustom(index, { level: checked ? "block" : "warn" })
-                  }
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeCustom(index)}
-                >
-                  Remove
-                </Button>
-              </div>
-              <Input
-                value={rule.pattern}
-                placeholder="regex pattern"
-                onChange={(e) => updateCustom(index, { pattern: e.target.value })}
-              />
-              <Input
-                value={rule.message}
-                placeholder="message shown when it matches"
-                onChange={(e) => updateCustom(index, { message: e.target.value })}
-              />
-            </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={addCustom}>
-            Add custom rule
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Waivers</CardTitle>
-          <CardDescription>
-            Accountable escapes — exempt a file from a rule with a reason
-            (reviewed in the PR, never a silent in-code suppression).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {standard.waivers.map((waiver, index) => (
-            <div
-              key={index}
-              className="space-y-2 rounded-md border border-border p-3"
-            >
-              <div className="flex items-center gap-2">
-                <Input
-                  value={waiver.path}
-                  placeholder="path/to/file.py"
-                  onChange={(e) => updateWaiver(index, { path: e.target.value })}
-                />
-                <Input
-                  value={waiver.rule}
-                  placeholder="rule name"
-                  onChange={(e) => updateWaiver(index, { rule: e.target.value })}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeWaiver(index)}
-                >
-                  Remove
-                </Button>
-              </div>
-              <Input
-                value={waiver.reason}
-                placeholder="why this is waived"
-                onChange={(e) => updateWaiver(index, { reason: e.target.value })}
-              />
-            </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={addWaiver}>
-            Add waiver
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Recent violations</CardTitle>
-          <CardDescription>
-            The latest findings recorded across this project&apos;s tasks.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {(!findings || findings.length === 0) && (
-            <p className="text-sm text-muted-foreground">
-              No violations recorded yet.
-            </p>
-          )}
-          {(findings ?? []).map((finding, index) => (
-            <div
-              key={`${finding.file}:${finding.line}:${finding.rule}:${index}`}
-              className="flex items-start justify-between gap-4 text-sm"
-            >
-              <div className="min-w-0">
-                <code>
-                  {finding.file}:{finding.line}
-                </code>{" "}
-                <span className="text-muted-foreground">{finding.message}</span>
-              </div>
-              <Badge
-                variant={finding.level === "block" ? "destructive" : "secondary"}
-              >
-                {finding.rule}
-              </Badge>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      {/* Recent violations spans the full width on its own row. */}
+      {recentViolations}
 
       <div className="flex justify-between">
         <Button
@@ -417,7 +456,9 @@ export function ConventionsTab({ projectId }: { projectId: string }) {
           disabled={(draft == null && !usingDefaults) || save.isPending}
           onClick={() => save.mutate(draft ?? standard)}
         >
-          {usingDefaults && draft == null ? "Save defaults to repo" : "Save to repo"}
+          {usingDefaults && draft == null
+            ? "Save defaults to repo"
+            : "Save to repo"}
         </Button>
       </div>
     </div>
