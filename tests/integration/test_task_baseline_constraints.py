@@ -70,7 +70,7 @@ async def test_baseline_attached_when_flag_on(
     task = await TaskService(db_session).create(_req(agent, project, "Do the work"))
     assert task.description is not None
     assert "## Constraints" in task.description
-    assert "no models in routers" in task.description
+    assert "no lint suppressions" in task.description
 
 
 async def test_flag_off_attaches_nothing(
@@ -93,7 +93,7 @@ async def test_baseline_not_suppressed_by_agent_constraints_section(
     task = await TaskService(db_session).create(_req(agent, project, seeded))
     assert task.description is not None
     assert "a task-specific note" in task.description
-    assert "no models in routers" in task.description
+    assert "no lint suppressions" in task.description
 
 
 async def test_baseline_attach_is_idempotent(
@@ -107,4 +107,4 @@ async def test_baseline_attach_is_idempotent(
     await svc._attach_baseline_constraints(task)
     assert task.description == before
     assert task.description is not None
-    assert task.description.count("no models in routers") == 1
+    assert task.description.count("no lint suppressions") == 1

@@ -81,7 +81,7 @@ async def test_get_conventions_returns_map_and_health(client: AsyncClient) -> No
     resp = await client.get(f"/api/projects/{project_id}/conventions", headers=_HDR)
     assert resp.status_code == HTTPStatus.OK
     body = resp.json()
-    assert body["standard"]["rules"]["no_models_in_routers"]["level"] == "block"
+    assert body["standard"]["rules"]["no_lint_suppressions"]["level"] == "block"
     assert body["health"]["status"] in {"missing", "unknown", "ok", "degraded"}
 
 

@@ -133,7 +133,7 @@ async def test_baseline_constraints_include_block_rules(
     constraints = await get_conventions_service(db_session).baseline_constraints(
         project
     )
-    assert any("no models in routers" in c for c in constraints)
+    assert any("no lint suppressions" in c for c in constraints)
 
 
 async def test_render_ambient_block_is_bounded(
