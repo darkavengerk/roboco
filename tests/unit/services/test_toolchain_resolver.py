@@ -10,12 +10,9 @@ can pass it to uv explicitly.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from roboco.services.toolchain import ResolvedPython, resolve_target_python, satisfies
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _write(root: Path, *, pyproject: str | None = None, pin: str | None = None) -> None:
@@ -101,3 +98,21 @@ def test_satisfies_helper() -> None:
     assert satisfies("3.14", ">=3.14,<3.15") is True
     assert satisfies("3.13", ">=3.14,<3.15") is False
     assert satisfies("3.12", "") is True
+
+
+def test_roboco_repo_floor_resolves_to_its_real_python() -> None:
+    """RoboCo's own ``requires-python`` must resolve to 3.13, not lower.
+
+    Its code imports ``tomllib`` (3.11+) and the stack runs on 3.13; a
+    permissive floor like ``>=3.10`` made the resolver provision agent
+    workspaces at 3.10, where the suite cannot even be collected. This guards
+    the floor against silently regressing below the real requirement.
+    """
+    root = Path(__file__).resolve()
+    while not (root / "pyproject.toml").is_file():
+        if root.parent == root:
+            raise AssertionError("repo root with pyproject.toml not found")
+        root = root.parent
+    resolved = resolve_target_python(root)
+    assert resolved is not None
+    assert resolved.version == "3.13"
