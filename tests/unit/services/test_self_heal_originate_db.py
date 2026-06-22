@@ -3,15 +3,14 @@
 The loop opens a fix task only when ``self_heal_originate_enabled``, dedupes one
 open task per regression fingerprint, honors the per-cycle and rolling open-task
 caps, and creates the task PENDING + assigned to the Main PM agent +
-``confirmed_by_human=False`` so it sits inert until the CEO Approve-&-Starts it.
-Crucially it NEVER calls start / approve / merge / deploy — asserted here.
+``confirmed_by_human=True`` so it dispatches autonomously (no CEO Approve-&-Start).
+Crucially the loop NEVER calls start / approve / merge / deploy — asserted here.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
-from uuid import UUID, uuid4
 
 import pytest
 from roboco.config import settings as cfg
@@ -22,7 +21,6 @@ from roboco.services.notification import NotificationService
 from roboco.services.self_heal_engine import SelfHealEngine
 from roboco.services.task import TaskService, get_task_service
 from roboco.services.telemetry import TelemetrySample
-from sqlalchemy import select
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -152,7 +150,7 @@ async def test_originate_creates_pending_main_pm_assigned_task(
     # Assigned to the Main PM agent up front (not just team=main_pm) so that, once
     # the CEO confirms it, the orchestrator dispatches it straight to that agent.
     assert task.assigned_to == MAIN_PM_UUID
-    assert task.confirmed_by_human is False  # still inert until Approve-&-Start
+    assert task.confirmed_by_human is True  # auto-confirmed → dispatches autonomously
     assert task.team == Team.MAIN_PM
     assert task.source == "self_heal"
     assert task.acceptance_criteria  # non-empty (AC-guardrail)
@@ -242,45 +240,17 @@ async def test_loop_never_starts_or_approves(
 
 
 @pytest.mark.asyncio
-async def test_ceo_approve_and_start_flips_the_confirmation_gate(
+async def test_originated_task_is_confirmed_for_autonomous_dispatch(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The opened task is unconfirmed (held out of dispatch); the CEO's
-    approve_and_start flips confirmed_by_human=True so it can then dispatch."""
+    """The opened task is confirmed up front, so the PM dispatcher picks it up
+    without any CEO Approve-&-Start (that gate is the Intake/board flow)."""
     await _seed_project(db_session)
-    # approve_and_start reassigns to the main-pm agent — get-or-create by slug
-    # (the full suite may already have committed a "main-pm" agent).
-    existing_pm = (
-        await db_session.execute(select(AgentTable).where(AgentTable.slug == "main-pm"))
-    ).scalar_one_or_none()
-    if existing_pm is None:
-        db_session.add(
-            AgentTable(
-                id=uuid4(),
-                name="Main PM",
-                slug="main-pm",
-                role=AgentRole.MAIN_PM,
-                team=Team.MAIN_PM,
-                status=AgentStatus.ACTIVE,
-                model_config={},
-                system_prompt="pm",
-                capabilities=[],
-                permissions={},
-                metrics={},
-            )
-        )
-        await db_session.flush()
     _enable(monkeypatch)
-    # approve_and_start emits a stream event; stub it out (no bus in the test).
-    monkeypatch.setattr(TaskService, "_emit_task_event", AsyncMock())
-
     await SelfHealEngine(
         db_session, source=_FakeSource([_breach("ci:roboco")])
     ).run_cycle()
     task = (await get_task_service(db_session).list_open_self_heal_tasks())[0]
-    assert task.confirmed_by_human is False  # inert: held out of dispatch
-
-    started = await TaskService(db_session).approve_and_start(UUID(str(task.id)))
-    assert started is not None
-    assert started.confirmed_by_human is True  # gate flipped → now dispatchable
-    assert started.status == TaskStatus.PENDING  # reassignment, not a transition
+    assert task.confirmed_by_human is True  # dispatches autonomously
+    assert task.status == TaskStatus.PENDING  # ready for the PM dispatcher
+    assert task.assigned_to == MAIN_PM_UUID  # straight to the Main PM agent

@@ -129,15 +129,14 @@ class SelfHealEngine(BaseService):
         Bounded + deduped: skips a regression that already has an open self-heal
         task (by fingerprint), honors the per-cycle and rolling open-task caps,
         and resolves the repo to RoboCo's own project. Each task is created
-        PENDING + assigned to the Main PM + ``confirmed_by_human=False`` so it
-        sits inert until the CEO Approve-&-Starts it — origination is the loop's
-        last act. It is assigned to the Main PM AGENT (not merely team=main_pm)
-        so that, once the CEO approves, the orchestrator dispatches it straight to
-        that agent via the assigned-PM path instead of the unassigned-team
-        routing, which picks up slowly or not at all. The confirmed_by_human gate
-        still holds it inert until approval (the dispatcher's self-heal skip sits
-        before the assigned/unassigned split). It NEVER calls start / approve /
-        merge / deploy. Flushes; the caller commits.
+        PENDING + assigned to the Main PM agent (not merely team=main_pm) so the
+        orchestrator dispatches it straight to that agent via the assigned-PM
+        path. RoboCo self-heals autonomously: the fix task dispatches WITHOUT a
+        CEO Approve-&-Start (``confirmed_by_human=True`` up front) — that is the
+        Intake/board flow, not this one. It is safe because the loop only OPENS
+        the task; the fix itself still ships through the normal gates
+        (dev -> QA -> PR review -> the CEO's merge), and the loop NEVER calls
+        start / approve / merge / deploy. Flushes; the caller commits.
         """
         task_svc = get_task_service(self.session)
         project_svc = get_project_service(self.session)
@@ -175,8 +174,10 @@ class SelfHealEngine(BaseService):
                         f"Evidence: {obs.raw_ref}\n\n"
                         "Investigate and fix the regression at its root so CI "
                         "returns to green. This task was opened automatically by "
-                        "the self-heal loop and is PENDING your Approve-&-Start; "
-                        "nothing runs until you approve it."
+                        "the self-heal loop and is READY TO START NOW — no "
+                        "approval needed; pick it up and coordinate the fix. It "
+                        "still ships through the normal gates (QA, PR review, and "
+                        "the CEO's merge)."
                     ),
                     acceptance_criteria=[
                         f"CI on {obs.repo_hint}'s default branch is green again",
@@ -192,7 +193,7 @@ class SelfHealEngine(BaseService):
                     project_id=cast("UUID", project.id),
                     status=TaskStatus.PENDING,
                     source=SELF_HEAL_SOURCE,
-                    confirmed_by_human=False,
+                    confirmed_by_human=True,
                 )
             )
             # Carry the fingerprint so a later cycle sees this regression already

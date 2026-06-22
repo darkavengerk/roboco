@@ -38,7 +38,7 @@ Flip **the strategy engine** on in Settings → Feature Flags (or set `ROBOCO_ST
 
 ### The self-healing CI loop
 
-The same shape, pointed inward: flip **self-healing** on in Settings → Feature Flags (or set `ROBOCO_SELF_HEAL_ENABLED=true`) and RoboCo begins watching its **own** repository's CI. When a run regresses it tells you. Turn on the second switch (`ROBOCO_SELF_HEAL_ORIGINATE_ENABLED=true`) and it goes one step further — it opens a fix task for the regression, but only as far as **PENDING, awaiting your approval**. It never starts, merges, or deploys that work itself: the company can notice it broke its own build and queue the repair, but the call to run it stays yours. Both switches are off by default, and it watches only the one repo you name as RoboCo itself.
+The same shape, pointed inward: flip **self-healing** on in Settings → Feature Flags (or set `ROBOCO_SELF_HEAL_ENABLED=true`) and RoboCo begins watching its **own** repository's CI. When a run regresses it tells you. Turn on the second switch (`ROBOCO_SELF_HEAL_ORIGINATE_ENABLED=true`) and it goes one step further — it opens a fix task for the regression and hands it straight to the Main PM, who coordinates the repair. It never merges or deploys that work itself: the fix still flows through the normal gates — dev, QA, PR review, and **your** merge — so the company can repair its own build autonomously while the decision to ship stays yours. Both switches are off by default, and it watches only the one repo you name as RoboCo itself.
 
 ## Feel the whole thing
 

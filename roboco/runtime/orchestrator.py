@@ -59,7 +59,7 @@ from roboco.models.runtime import (
     WaitingRecord,
 )
 from roboco.seeds.initial_data import AGENT_UUIDS
-from roboco.services.task import PR_REVIEW_SOURCES, SELF_HEAL_SOURCE
+from roboco.services.task import PR_REVIEW_SOURCES
 
 logger = structlog.get_logger()
 
@@ -7705,17 +7705,11 @@ Start now: evidence(task_id="{task_id}")
             # PM hierarchy never routes or spawns them.
             if task.get("source") in PR_REVIEW_SOURCES:
                 continue
-            # A self-heal fix task is opened by the loop but must stay INERT until
-            # the CEO Approve-&-Starts it (which flips confirmed_by_human). Until
-            # then the PM hierarchy must not route, assign, or spawn it — even
-            # though it's already team=main_pm. It still appears in the panel so
-            # the CEO can see and approve it. This guard sits before the
-            # assigned-vs-unassigned split, so it holds whether or not the task
-            # carries an assignee.
-            if task.get("source") == SELF_HEAL_SOURCE and not task.get(
-                "confirmed_by_human"
-            ):
-                continue
+            # Self-heal fix tasks dispatch autonomously — the loop opens them
+            # confirmed + assigned to the Main PM, so they flow through the
+            # assigned-PM path below like any other PM task (no CEO Approve-&-
+            # Start; that gate is the Intake/board flow). The fix still ships
+            # through dev -> QA -> PR review -> the CEO's merge.
             assigned_to = task.get("assigned_to")
             if assigned_to:
                 if self._resolve_agent_slug(assigned_to) in self._BOARD_AGENTS:

@@ -236,7 +236,7 @@ These gate the env-toggled capabilities. Each is inert when off. See [Optional c
 | `ROBOCO_SELF_HEAL_ENABLED` | `false` | Master switch for the self-heal loop (detect + notify the CEO). When off the loop never runs. |
 | `ROBOCO_SELF_HEAL_PROJECT_SLUG` | *(empty)* / `roboco-api` (compose) | The registered project that *is* RoboCo itself — the only repo the loop watches/originates into. |
 | `ROBOCO_SELF_HEAL_CI_WORKFLOW` | `ci.yml` | GitHub Actions workflow file to scope the CI signal to. |
-| `ROBOCO_SELF_HEAL_ORIGINATE_ENABLED` | `false` | Second opt-in: on a regression, also open a PENDING fix task. The loop never approves, merges, or deploys. |
+| `ROBOCO_SELF_HEAL_ORIGINATE_ENABLED` | `false` | Second opt-in: on a regression, also open a fix task and dispatch it to the Main PM automatically (no manual start). The loop never merges or deploys — the fix ships through the normal gates (QA, PR review, your merge). |
 | `ROBOCO_SELF_HEAL_INTERVAL_SECONDS` | `1800` | Seconds between telemetry passes. |
 | `ROBOCO_SELF_HEAL_MAX_OPEN_TASKS` | `3` | Rolling cap on concurrently-open self-heal tasks. |
 | `ROBOCO_SELF_HEAL_MAX_PER_CYCLE` | `1` | Max self-heal tasks originated in one cycle. |
