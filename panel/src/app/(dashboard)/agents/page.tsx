@@ -17,7 +17,7 @@ import {
   getBackendAgents,
   getFrontendAgents,
   getUxAgents,
-  getOnDemandAgents,
+  getSupportAgents,
 } from "@/lib/agent-definitions";
 import {
   OrchestratorStatusCards,
@@ -136,12 +136,12 @@ export default function AgentsPage() {
         columns={4}
       />
 
-      {/* On-Demand section: Prompter/Intake and Secretary agents — only rendered
-          when the API returns at least one matching agent */}
-      {getOnDemandAgents(agents).length > 0 && (
+      {/* Support section: the CEO-direct helpers — Intake/Prompter, Secretary,
+          and the root PR Reviewer — only rendered when at least one matches */}
+      {getSupportAgents(agents).length > 0 && (
         <AgentGrid
-          title="On-Demand"
-          agents={getOnDemandAgents(agents)}
+          title="Support"
+          agents={getSupportAgents(agents)}
           agentStatuses={agentStatuses}
           agentUsage={agentUsageMap}
           isLoading={(isLoading || agentsLoading) && !isOffline}

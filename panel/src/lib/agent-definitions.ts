@@ -21,16 +21,13 @@ export interface AgentDefinition {
 export const getBoardAgents = (agents: AgentDefinition[] | undefined | null) =>
   (agents ?? []).filter(
     (a) =>
-      // The CEO is the human operator, not a spawnable agent — exclude it even
-      // though its record carries team=board.
-      // MAIN_PM has its own dedicated section below Board, so exclude it here.
-      a.role !== AgentRole.CEO &&
-      a.role !== AgentRole.MAIN_PM &&
-      (a.team === Team.BOARD ||
-        a.role === AgentRole.HEAD_MARKETING ||
-        a.role === AgentRole.AUDITOR ||
-        a.role === AgentRole.PRODUCT_OWNER ||
-        a.role === AgentRole.PR_REVIEWER)
+      // The Board is exactly the three review/oversight roles: Product Owner,
+      // Head of Marketing, and the Auditor. The CEO (human operator) and the
+      // Main PM are not Board agents, and neither are the CEO-direct helpers
+      // (Intake, Secretary, root PR Reviewer) — those are grouped as Support.
+      a.role === AgentRole.PRODUCT_OWNER ||
+      a.role === AgentRole.HEAD_MARKETING ||
+      a.role === AgentRole.AUDITOR
   );
 
 export const getMainPm = (agents: AgentDefinition[] | undefined | null) =>
@@ -48,13 +45,14 @@ export const getUxAgents = (agents: AgentDefinition[] | undefined | null) =>
 export const getMarketingAgents = (agents: AgentDefinition[] | undefined | null) =>
   (agents ?? []).filter((a) => a.team === Team.MARKETING);
 
-// On-demand agents (Prompter/Intake, Secretary) are not part of any standing
-// cell team — they are spawned on request. Captured by inclusion of their
-// explicit roles so new on-demand agents appear automatically when roles
-// are added to the enum.
-export const getOnDemandAgents = (agents: AgentDefinition[] | undefined | null) =>
+// CEO-direct support roles — Intake (Prompter), Secretary, and the root PR
+// Reviewer. Board-adjacent and spawned on demand, but NOT Board members. Cell
+// PR reviewers carry their cell's team and stay grouped under that cell; only
+// the root reviewer carries team=board, which is how it is distinguished here.
+export const getSupportAgents = (agents: AgentDefinition[] | undefined | null) =>
   (agents ?? []).filter(
     (a) =>
       a.role === AgentRole.PROMPTER ||
-      a.role === AgentRole.SECRETARY
+      a.role === AgentRole.SECRETARY ||
+      (a.role === AgentRole.PR_REVIEWER && a.team === Team.BOARD)
   );

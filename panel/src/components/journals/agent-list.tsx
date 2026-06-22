@@ -19,11 +19,22 @@ function groupByTeam(agents: Agent[]): Record<string, Agent[]> {
     ux_ui: [],
     marketing: [],
     board: [],
+    support: [],
     management: [],
   };
 
   agents.forEach((agent) => {
-    if (agent.team === Team.BACKEND) {
+    // CEO-direct helpers — Intake, Secretary, and the root PR Reviewer — are
+    // board-ADJACENT support roles, not Board members, so they get their own
+    // group. Cell PR reviewers (team = backend/frontend/ux_ui) stay under their
+    // cell; only the root reviewer carries team = board.
+    if (
+      agent.role === AgentRole.PROMPTER ||
+      agent.role === AgentRole.SECRETARY ||
+      (agent.role === AgentRole.PR_REVIEWER && agent.team === Team.BOARD)
+    ) {
+      groups.support.push(agent);
+    } else if (agent.team === Team.BACKEND) {
       groups.backend.push(agent);
     } else if (agent.team === Team.FRONTEND) {
       groups.frontend.push(agent);
@@ -53,6 +64,7 @@ const TEAM_LABELS: Record<string, string> = {
   ux_ui: "UX/UI",
   marketing: "Marketing",
   board: "Board",
+  support: "Support",
   management: "Management",
 };
 

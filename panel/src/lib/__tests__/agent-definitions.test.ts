@@ -6,7 +6,7 @@ import {
   getFrontendAgents,
   getUxAgents,
   getMarketingAgents,
-  getOnDemandAgents,
+  getSupportAgents,
   type AgentDefinition,
 } from "@/lib/agent-definitions";
 import { AgentRole, Team } from "@/types";
@@ -30,7 +30,8 @@ const mainPm = makeAgent("main-pm-1", AgentRole.MAIN_PM, Team.MAIN_PM);
 const auditor = makeAgent("auditor-1", AgentRole.AUDITOR, Team.BOARD);
 const headMarketing = makeAgent("hm-1", AgentRole.HEAD_MARKETING, null);
 const productOwner = makeAgent("po-1", AgentRole.PRODUCT_OWNER, Team.BOARD);
-const prReviewer = makeAgent("prr-1", AgentRole.PR_REVIEWER, null);
+const prReviewer = makeAgent("prr-root", AgentRole.PR_REVIEWER, Team.BOARD);
+const feReviewer = makeAgent("prr-fe", AgentRole.PR_REVIEWER, Team.FRONTEND);
 const beCellPm = makeAgent("be-pm", AgentRole.CELL_PM, Team.BACKEND);
 const beDev1 = makeAgent("be-dev-1", AgentRole.DEVELOPER, Team.BACKEND);
 const feDev1 = makeAgent("fe-dev-1", AgentRole.DEVELOPER, Team.FRONTEND);
@@ -46,6 +47,7 @@ const ALL_AGENTS: AgentDefinition[] = [
   headMarketing,
   productOwner,
   prReviewer,
+  feReviewer,
   beCellPm,
   beDev1,
   feDev1,
@@ -81,9 +83,11 @@ describe("getBoardAgents", () => {
     expect(result).toContainEqual(headMarketing);
   });
 
-  it("includes PR_REVIEWER role regardless of team", () => {
+  it("excludes the CEO-direct helpers (root PR Reviewer, Intake, Secretary)", () => {
     const result = getBoardAgents(ALL_AGENTS);
-    expect(result).toContainEqual(prReviewer);
+    expect(result).not.toContainEqual(prReviewer);
+    expect(result).not.toContainEqual(prompter);
+    expect(result).not.toContainEqual(secretary);
   });
 
   it("excludes cell agents (BACKEND, FRONTEND, etc.)", () => {
@@ -162,10 +166,11 @@ describe("getBackendAgents", () => {
 // ---------------------------------------------------------------------------
 
 describe("getFrontendAgents", () => {
-  it("returns all agents on the FRONTEND team", () => {
+  it("returns all agents on the FRONTEND team, including the cell PR reviewer", () => {
     const result = getFrontendAgents(ALL_AGENTS);
     expect(result).toContainEqual(feDev1);
-    expect(result).toHaveLength(1);
+    expect(result).toContainEqual(feReviewer);
+    expect(result).toHaveLength(2);
   });
 
   it("excludes agents from other teams", () => {
@@ -237,37 +242,52 @@ describe("getMarketingAgents", () => {
 // getOnDemandAgents
 // ---------------------------------------------------------------------------
 
-describe("getOnDemandAgents", () => {
-  it("returns PROMPTER agents", () => {
-    const result = getOnDemandAgents(ALL_AGENTS);
+describe("getSupportAgents", () => {
+  it("returns PROMPTER (Intake) agents", () => {
+    const result = getSupportAgents(ALL_AGENTS);
     expect(result).toContainEqual(prompter);
   });
 
   it("returns SECRETARY agents", () => {
-    const result = getOnDemandAgents(ALL_AGENTS);
+    const result = getSupportAgents(ALL_AGENTS);
     expect(result).toContainEqual(secretary);
   });
 
-  it("excludes agents that are neither PROMPTER nor SECRETARY", () => {
-    const result = getOnDemandAgents(ALL_AGENTS);
+  it("returns the root PR Reviewer (team=board)", () => {
+    const result = getSupportAgents(ALL_AGENTS);
+    expect(result).toContainEqual(prReviewer);
+  });
+
+  it("excludes cell PR reviewers — they belong to their cell", () => {
+    const result = getSupportAgents(ALL_AGENTS);
+    expect(result).not.toContainEqual(feReviewer);
+  });
+
+  it("excludes Board members, the CEO, the Main PM, and cell agents", () => {
+    const result = getSupportAgents(ALL_AGENTS);
+    expect(result).not.toContainEqual(productOwner);
     expect(result).not.toContainEqual(beDev1);
     expect(result).not.toContainEqual(ceo);
     expect(result).not.toContainEqual(mainPm);
   });
 
-  it("returns both on-demand roles and no others", () => {
-    const result = getOnDemandAgents(ALL_AGENTS);
-    expect(result).toHaveLength(2);
+  it("returns exactly the three support roles and no others", () => {
+    const result = getSupportAgents(ALL_AGENTS);
+    expect(result).toHaveLength(3);
     expect(result.map((a) => a.role)).toEqual(
-      expect.arrayContaining([AgentRole.PROMPTER, AgentRole.SECRETARY])
+      expect.arrayContaining([
+        AgentRole.PROMPTER,
+        AgentRole.SECRETARY,
+        AgentRole.PR_REVIEWER,
+      ])
     );
   });
 
   it("returns an empty array for null input", () => {
-    expect(getOnDemandAgents(null)).toEqual([]);
+    expect(getSupportAgents(null)).toEqual([]);
   });
 
   it("returns an empty array for undefined input", () => {
-    expect(getOnDemandAgents(undefined)).toEqual([]);
+    expect(getSupportAgents(undefined)).toEqual([]);
   });
 });
