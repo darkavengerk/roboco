@@ -1,6 +1,6 @@
 # RoboCo Usage Guide
 
-> **This guide has moved.** Operating RoboCo is now documented in the full docs site at **[roboco.dev/docs](https://roboco.dev/docs)** (source under [`docs/`](docs/)).
+> **This guide has moved.** Operating RoboCo is now documented in the full docs site at **[docs.roboco.dev](https://docs.roboco.dev)** (source under [`docs/`](docs/)).
 
 Jump straight to:
 

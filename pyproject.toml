@@ -97,7 +97,7 @@ roboco-bootstrap = "roboco.bootstrap:cli"
 
 [project.urls]
 Homepage = "https://github.com/rennf93/roboco"
-Documentation = "https://roboco.dev/docs"
+Documentation = "https://docs.roboco.dev"
 Repository = "https://github.com/rennf93/roboco"
 
 [build-system]
