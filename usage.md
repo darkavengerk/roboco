@@ -129,7 +129,13 @@ Enum values: `task_type` ∈ {`code`, `documentation`, `research`, `planning`, `
 pending → claimed → in_progress → verifying → awaiting_qa → awaiting_documentation → awaiting_pm_review → completed
                          ↓                                                                    ↓
                     blocked/paused                                                  awaiting_ceo_approval (major tasks)
+
+in_progress → awaiting_pr_review → awaiting_pm_review → completed   (in-path PR-review gate for assembled PRs)
+                     ↓
+              needs_revision (pr_fail)
 ```
+
+The leaf flow above is the developer path. Assembled PRs add an in-path PR-review gate: the cell PM's `submit_up` opens the cell→root PR and the Main PM's `submit_root` opens the root→master PR, each moving the task `in_progress → awaiting_pr_review`. There the PR reviewer `pr_pass`es it on to `awaiting_pm_review` or `pr_fail`s it back to `needs_revision`. Leaf developer tasks and branchless coordination roots skip the gate.
 
 Agents automatically:
 1. Pull pending work via the gateway verb `give_me_work()`

@@ -106,6 +106,17 @@ The gateway enforces some of these; the rest are convention but failing one of t
 
 If any item fails, do not retry `i_am_done`; fix the missing piece first.
 
+## Write modular code — the conventions gate enforces it
+
+Beyond placement and hygiene, the Architectural Conventions Standard now enforces MODULARIZATION via a "modularity" AST check family that inspects a definition's body and a file's composition. Write to it from the start — a block-level modularity finding refuses `i_am_done` (and the PR reviewer's `pr_pass`) with the offending `file:line` + a fix hint, and surfaces in QA's `claim_review` evidence as `convention_findings`. The checks are language-aware: a Python/API project carries `thin_routes`; a TypeScript/React project carries `thin_components`; `modular_cohesion` and `god_class` apply to both.
+
+- **One architectural concern per file (`modular_cohesion`).** A file must own a single concern. Do not define a Pydantic model inside a router, or a schema inside a component — split each concern into its own module (`models/`, `schemas/`, the hook, …).
+- **Keep route handlers thin (`thin_routes`, Python/API).** A route delegates data access and business logic to a service. It must NOT run its own database access in the route body — no `session.execute`/`query`/`commit`/`add`, no `select()`/`insert()`/`update()`/`delete()`. Move that into the service the route calls.
+- **Keep components presentational (`thin_components`, TypeScript/React).** Data fetching (`fetch`/`axios`) and logic belong in a hook, not the component body. The component renders; the hook fetches.
+- **No god classes (`god_class`).** A class past the method-count threshold is doing too much — decompose it along its responsibilities.
+
+If a finding is a genuine false positive, clear it by committing a `waiver` in `.roboco/conventions.yml` in your branch — accountable and reviewed in the PR. Do not silence it any other way.
+
 ## Channels
 
 **Before any `say(channel=...)` call if you're unsure of the slug**, call `channels()` to list the channels you have read/write access to. Inventing a slug returns `Channel not found`. The returned `writable` list is the canonical set; pick from there.

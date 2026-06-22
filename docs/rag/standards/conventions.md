@@ -1,6 +1,6 @@
 # Architectural Conventions Standard
 
-A per-project, repo-canonical standard for *where code lives* and basic house-style hygiene — the layer above the `make`-style gates (which check syntax, types, and tests, not placement). It exists so an agent cannot land a model defined inside a router, a helper in a route file, or a lint suppression, even when the code compiles and the tests pass.
+A per-project, repo-canonical standard for *where code lives*, how a definition is *built*, and basic house-style hygiene — the layer above the `make`-style gates (which check syntax, types, and tests, not placement or structure). It exists so an agent cannot land a model defined inside a router, a route handler that runs its own database access, a helper in a route file, or a lint suppression, even when the code compiles and the tests pass. It enforces the separation of concerns a senior would demand in review, not just linting.
 
 The standard is gated by `ROBOCO_CONVENTIONS_ENABLED` (default off) and is fully inert when off.
 
@@ -53,6 +53,19 @@ python -m roboco.conventions check --root <repo> --files <a> <b> ...
 ```
 
 It favours precision over recall — it abstains when it cannot classify a definition, so a `block` gate can never strand a task on a guess — and it fails loud: a validator that cannot run exits non-zero so the gate blocks rather than silently passing.
+
+## Modularity
+
+Beyond placement and hygiene, the standard enforces modularization with a **modularity** check family. Where placement asks *which module a definition belongs in*, modularity inspects a definition's **body** and a file's **composition** — the structural questions a senior asks in code review:
+
+- **`modular_cohesion`** (any stack) — a file must own one architectural concern. A file that mixes them (a Pydantic model defined in a router, a schema defined in a component) is a monolith to split.
+- **`thin_routes`** (Python / API) — a route handler must delegate to a service. It may not run its own database access (no `session.execute` / `query` / `commit` / `add`, no `select()` / `insert()` / `update()` / `delete()`) in the route body.
+- **`thin_components`** (TypeScript / React) — a component must stay presentational. Data fetching (`fetch` / `axios`) belongs in a hook, not in the component body.
+- **`god_class`** (any stack) — a class past a method-count threshold is doing too much; decompose it to keep a single responsibility.
+
+Rules are scan-derived and language-aware: hygiene seeds universally, placement only for modules that actually exist in the repo, and modularity per stack — a Python project gets `thin_routes`, a TypeScript project gets `thin_components`, and `modular_cohesion` plus `god_class` apply to both. A frontend project therefore carries `no_models_in_components` and `thin_components`, never a backend `no_models_in_routers`.
+
+Modularity findings flow through the same enforcement as the rest of the standard: a `block`-level finding refuses the developer's `i_am_done` and the reviewer's `pr_pass` with the offending `file:line` and a fix hint, and surfaces in QA's `claim_review` evidence as `convention_findings`. A false positive is cleared the same way — a waiver committed in the branch.
 
 ## Where it is enforced
 

@@ -52,25 +52,39 @@ From `roboco/enforcement/task_lifecycle.py`:
 backlog ────────► pending ────────► claimed ────────► in_progress
     │                │                                     │
     ▼                ▼                                     ├──► blocked ──► in_progress
-cancelled        cancelled                                 ├──► paused ───► in_progress
-                                                          ├──► verifying
-                                                          ├──► awaiting_pm_review ──► completed
-                                                          │         │
-                                                          │         ▼
-                                                          │    awaiting_ceo_approval ──► completed
-                                                          │                │
-                                                          │                ▼
-                                                          │          needs_revision
-                                                          │
-                                                          ▼
-                                                     awaiting_qa
-                                                          │
-                                              ┌───────────┴───────────┐
-                                              ▼                       ▼
-                                   awaiting_documentation      needs_revision
-                                              │
-                                              ▼
-                                     awaiting_pm_review
+cancelled        cancelled                                 └──► paused ───► in_progress
+
+Two flows leave in_progress depending on the task:
+
+Leaf developer task (self-verify → QA → docs → PM merge):
+
+in_progress ──► verifying ──► awaiting_qa
+                                   │
+                       ┌───────────┴───────────┐
+                       ▼                       ▼
+            awaiting_documentation       needs_revision
+                       │
+                       ▼
+              awaiting_pm_review ──► completed
+                       │
+                       ▼
+              awaiting_ceo_approval ──► completed
+                       │
+                       ▼
+                 needs_revision
+
+Assembled parent task the PM submits (submit_up opens the cell→root PR,
+submit_root opens the root→master PR; reviewed at the in-path PR gate):
+
+in_progress ──► awaiting_pr_review
+                       │
+            ┌──────────┴──────────┐
+            │ pr_pass             │ pr_fail
+            ▼                     ▼
+   awaiting_pm_review       needs_revision
+            │
+            ▼
+        completed
 ```
 
 ### Terminal States
