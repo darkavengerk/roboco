@@ -65,7 +65,7 @@ You have two ways to get the images. Both start from the clone above.
 
     ```bash
     ROBOCO_REGISTRY=ghcr.io/rennf93   # or docker.io/renzof93
-    ROBOCO_VERSION=latest             # or a pinned release, e.g. 0.8.0
+    ROBOCO_VERSION=latest             # or a pinned release, e.g. 0.9.0
     ```
 
     The orchestrator pulls and spawns the matching pre-built agent images on demand — no build toolchain on your host.

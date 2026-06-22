@@ -25,7 +25,7 @@ A feature flag set in `.env` takes effect on the next backend restart. The env-g
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ROBOCO_APP_VERSION` | `0.8.0` | Reported app version. |
+| `ROBOCO_APP_VERSION` | `0.9.0` | Reported app version. |
 | `ROBOCO_DEBUG` | `false` | Debug mode. |
 | `ROBOCO_ENVIRONMENT` | `development` | One of `development` / `staging` / `production`. Selects the JSON log renderer (prod) vs console renderer. The compose stack sets `production`. |
 | `ROBOCO_HOST` | `127.0.0.1` | Bind address. Use `0.0.0.0` in containers. |
@@ -99,7 +99,7 @@ A feature flag set in `.env` takes effect on the next backend restart. The env-g
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ROBOCO_AGENT_IMAGE_REGISTRY` | *(empty)* | Registry namespace for pre-built agent images (e.g. `ghcr.io/rennf93`). Empty = build locally. The registry compose wires this to `ROBOCO_REGISTRY`. |
-| `ROBOCO_AGENT_IMAGE_TAG` | *(empty)* | Tag for pre-built agent images (e.g. `0.8.0`). Empty = implicit `:latest`. The registry compose wires this to `ROBOCO_VERSION`. |
+| `ROBOCO_AGENT_IMAGE_TAG` | *(empty)* | Tag for pre-built agent images (e.g. `0.9.0`). Empty = implicit `:latest`. The registry compose wires this to `ROBOCO_VERSION`. |
 
 !!! note "Deploy-time variables (compose, not config.py)"
     A few variables are consumed by the compose files and host-mount wiring rather than by `config.py`: `ROBOCO_REGISTRY`, `ROBOCO_VERSION`, `ROBOCO_DATA_DIR`, `ROBOCO_HOST_PROJECT_DIR`, `ROBOCO_HOST_CLAUDE_DIR` / `CLAUDE_AUTH_DIR`, `ROBOCO_HOST_DATA_DIR`, and `ROBOCO_HOST_GROK_DIR`. They are documented in the [production deploy reference](./deployment.md#required-host-path-mounts).
