@@ -493,7 +493,7 @@ help:
 	@echo "  make clean                    - Clean cache files"
 	@echo "  make prune                    - Prune docker resources"
 	@echo ""
-	@echo "Full docs: https://docs.roboco.dev  (preview locally: make serve-docs)"
+	@echo "Full docs: https://rennf93.github.io/roboco/  (preview locally: make serve-docs)"
 
 # Python versions list
 .PHONY: show-python-versions

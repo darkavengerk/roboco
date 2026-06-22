@@ -3,7 +3,7 @@
 # Preview: uv run mkdocs serve
 # Deploy:  handled in CI by .github/workflows/docs.yml (mkdocs gh-deploy → gh-pages).
 site_name: RoboCo
-site_url: https://docs.roboco.dev/
+site_url: https://rennf93.github.io/roboco/
 site_description: >-
   RoboCo is a self-hosted AI agentic company — 25 AI agents and one human CEO
   that run as a complete software-development workforce, operated from a single
