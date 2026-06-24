@@ -71,7 +71,11 @@ MODEL_CATALOG: tuple[CatalogEntry, ...] = (
     # the catalog is the single source of truth the Settings dropdown renders from.
     CatalogEntry("glm-5.1:cloud", ModelProvider.OLLAMA_CLOUD, "GLM 5.1"),
     CatalogEntry("kimi-k2.6:cloud", ModelProvider.OLLAMA_CLOUD, "Kimi K2.6"),
+    CatalogEntry("kimi-k2.7-code:cloud", ModelProvider.OLLAMA_CLOUD, "Kimi K2.7 Code"),
     CatalogEntry("minimax-m3:cloud", ModelProvider.OLLAMA_CLOUD, "Minimax M3"),
+    CatalogEntry(
+        "nemotron-3-ultra:cloud", ModelProvider.OLLAMA_CLOUD, "Nemotron 3 Ultra"
+    ),
     # --- Grok (xAI, OpenAI protocol) ---
     # Routes to the GROK provider → GrokCliProvider spawn (api.x.ai/v1). The xAI
     # key is set via PUT /api/providers/grok/key.
