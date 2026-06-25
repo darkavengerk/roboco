@@ -403,10 +403,34 @@ class PRReviewerMixin(_Base):
         )
 
     async def _project_slug_for(self, t: Any) -> str | None:
-        """Resolve the project slug for a task (for read-only PR API calls)."""
+        """Resolve the project slug for a task (read-only PR API calls + the
+        in-path gate's PR comment).
+
+        A normal task carries ``project_id``. A Main-PM coordination root — the
+        only task a root→master PR ever sits on — often carries just a
+        ``product_id`` (the cell→repo map) and no project of its own; its
+        ``feature/main_pm/{root}`` branch + PR live in the product's repo. Fall
+        through to the product's first distinct project (a monorepo product maps
+        every cell to one repo) so the gate verdict reaches the PR instead of
+        silently no-op'ing. Purely additive: a task WITH ``project_id`` resolves
+        exactly as before.
+        """
+        from uuid import UUID
+
         from roboco.services.project import get_project_service
 
-        if t.project_id is None:
+        project_service = get_project_service(self.task.session)
+        if t.project_id is not None:
+            project = await project_service.get(t.project_id)
+            return project.slug if project is not None else None
+        product_id = getattr(t, "product_id", None)
+        if product_id is None:
             return None
-        project = await get_project_service(self.task.session).get(t.project_id)
+        from roboco.services.product import get_product_service
+
+        product_service = get_product_service(self.task.session)
+        project_ids = await product_service.distinct_project_ids(UUID(str(product_id)))
+        if not project_ids:
+            return None
+        project = await project_service.get(project_ids[0])
         return project.slug if project is not None else None

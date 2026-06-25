@@ -240,6 +240,12 @@ class PRGateMixin(_Base):
             )
             if blocked is not None:
                 return blocked
+        # Author the canonical pr_review verdict note BEFORE the transition so
+        # it is persisted by the same commit (mirrors post_pr_review). This is
+        # what keeps notes_structured.pr_review in lock-step with the decision —
+        # a later pr_fail overwrites an earlier pr_pass verdict instead of
+        # leaving a stale "passed" on a task that was just sent back.
+        self._record_gate_verdict(t, verb, notes)
         runner = self._verb_runner()
         try:
             t = await runner.run_intent(verb, t, agent, spec_ctx)
@@ -295,6 +301,34 @@ class PRGateMixin(_Base):
                     verb="pr_pass",
                 )
         return None
+
+    def _record_gate_verdict(self, t: Any, verb: str, notes: str) -> None:
+        """Persist the gate verdict as the canonical ``pr_review`` note.
+
+        The tracing gate only threads ``notes`` through a throwaway shim, so
+        nothing wrote the task's structured PR-reviewer slot — a task passed
+        once and later failed kept showing the stale ``verdict: passed``. This
+        authors the slot on every decision (``pr_pass`` → passed, ``pr_fail`` →
+        failed) so it can never contradict the transition. Best-effort: content
+        validation (e.g. a too-short summary) must never roll back the gate, so a
+        malformed payload is logged and skipped rather than raised.
+        """
+        from roboco.foundation.policy.content import ContentValidationError
+        from roboco.services.content_notes import apply_structured_note
+
+        verdict = "passed" if verb == "pr_pass" else "failed"
+        try:
+            apply_structured_note(
+                t,
+                "pr_review",
+                {"summary": notes, "findings": [], "verdict": verdict},
+            )
+        except ContentValidationError:
+            logger.warning(
+                "gate verdict note skipped (invalid content)",
+                verb=verb,
+                task_id=str(getattr(t, "id", "")),
+            )
 
     async def _post_gate_review_to_pr(
         self, t: Any, verb: str, reviewer_slug: str, notes: str
