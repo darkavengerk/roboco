@@ -75,8 +75,23 @@ _UUID_HYPHEN_COUNT = 4  # Number of hyphens in a UUID
 _ROLE_CLAIM_STATUSES: dict[str, set[TaskStatus]] = {
     "qa": {TaskStatus.PENDING, TaskStatus.AWAITING_QA},
     "documenter": {TaskStatus.PENDING, TaskStatus.AWAITING_DOCUMENTATION},
-    "cell_pm": {TaskStatus.PENDING, TaskStatus.AWAITING_PM_REVIEW},
-    "main_pm": {TaskStatus.PENDING, TaskStatus.AWAITING_PM_REVIEW},
+    # PMs re-claim NEEDS_REVISION to recover a rejected coordination/assembled
+    # task (pr_fail / qa_fail / ceo_reject lands it there): the spec
+    # (lifecycle.CLAIM_RULES) grants it, and the runtime must match or the spec
+    # gate passes i_will_plan on a needs_revision root while the composed
+    # claim() returns None -> INVALID_STATE -> the PM respawn-loops on its own
+    # rejected root, unable to plan or idle it. Parity is locked by
+    # tests/unit/services/test_pm_claim_needs_revision.py.
+    "cell_pm": {
+        TaskStatus.PENDING,
+        TaskStatus.NEEDS_REVISION,
+        TaskStatus.AWAITING_PM_REVIEW,
+    },
+    "main_pm": {
+        TaskStatus.PENDING,
+        TaskStatus.NEEDS_REVISION,
+        TaskStatus.AWAITING_PM_REVIEW,
+    },
 }
 
 
