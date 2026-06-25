@@ -664,21 +664,69 @@ class GitService(BaseService):
     async def _assert_on_task_branch(
         self, workspace: Path, task_branch: str | None
     ) -> None:
-        """Reject ops when the workspace is on a branch other than the task's."""
+        """Ensure the workspace is on the task's branch, recovering a resumed
+        clone that drifted — instead of hard-failing.
+
+        A dev/documenter/QA clone is shared across tasks; on a respawn/resume it
+        can sit on a sibling task's branch, or a re-provisioned clone can lack
+        the task branch as a local ref (commits only on origin). The
+        fresh-claim path git-reset-hards the clone, but resume short-circuits
+        before it — so the agent's next commit hit BRANCH_MISMATCH and the task
+        wedged in a blocked respawn loop (the documented resume deadlock). This
+        now fetches + checks out the task branch (recreating a missing local ref
+        from origin) and only raises if it genuinely cannot switch (uncommitted
+        changes block it). It NEVER discards local work — checkout, not reset, so
+        a resumed agent's unpushed commits are preserved.
+        """
         if not task_branch:
             return
         current_branch = await self.get_current_branch(workspace)
-        if current_branch and current_branch != task_branch:
-            raise ValidationError(
-                f"BRANCH_MISMATCH: Workspace is on '{current_branch}' but "
-                f"task requires '{task_branch}'. The branch is checked out "
-                f"into your clone by your role's claim verb: "
-                f"`i_will_work_on(task_id)` (devs), "
-                f"`i_will_plan(task_id, plan)` (PMs), "
-                f"`claim_doc_task(task_id)` (documenters), "
-                f"`claim_review(task_id)` (QA). Re-call your role's claim "
-                f"verb on this task instead of switching branches by hand."
+        if not current_branch or current_branch == task_branch:
+            return
+        # Resumed/re-provisioned clone parked on the wrong branch — try to
+        # recover onto the task branch before rejecting.
+        token = await self._token_for_workspace(workspace)
+        local = await self._run_git(
+            workspace,
+            ["rev-parse", "--verify", "--quiet", f"refs/heads/{task_branch}"],
+            check=False,
+        )
+        if local.returncode != 0:
+            # Local ref absent (re-provisioned clone) — recover it from origin.
+            await self._run_git(
+                workspace,
+                ["fetch", "origin", task_branch],
+                token=token,
+                check=False,
+                timeout=_network_git_timeout(),
             )
+            await self._run_git(
+                workspace,
+                ["branch", task_branch, f"origin/{task_branch}"],
+                check=False,
+            )
+        switched = await self._run_git(
+            workspace, ["checkout", task_branch], check=False
+        )
+        if (
+            switched.returncode == 0
+            and await self.get_current_branch(workspace) == task_branch
+        ):
+            self.log.info(
+                "recovered workspace onto task branch on resume",
+                task_branch=task_branch,
+                from_branch=current_branch,
+            )
+            return
+        raise ValidationError(
+            f"BRANCH_MISMATCH: Workspace is on '{current_branch}' but task "
+            f"requires '{task_branch}', and it could not be switched "
+            f"automatically (uncommitted changes likely block the switch). "
+            f"Re-call your role's claim verb on this task "
+            f"(`i_will_work_on` / `i_will_plan` / `claim_doc_task` / "
+            f"`claim_review`); if it persists, unclaim and re-claim to rebuild "
+            f"the clone, then replay your commits."
+        )
 
     async def _link_commit_to_task(
         self,
@@ -2557,16 +2605,54 @@ class GitService(BaseService):
             )
             return None
 
+    async def _branch_has_open_dependents(
+        self, owner: str, repo: str, branch: str, git_token: str
+    ) -> bool:
+        """True if any OPEN PR still targets ``branch`` as its base.
+
+        Such a branch is an active integration target — a leaf still merging
+        into its cell branch, or a cell still merging into the
+        ``feature/main_pm/{root}`` integration branch. Deleting it strands those
+        in-flight child PRs (their base vanishes), which is the run-zombifying
+        "branch gone from origin" wedge. Fails SAFE: on any error returns True
+        so the branch is preserved (cleanup is best-effort; stranding is not).
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{owner}/{repo}/pulls",
+                    params={"base": branch, "state": "open", "per_page": 1},
+                    headers={
+                        "Authorization": f"Bearer {git_token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                )
+            if not resp.is_success:
+                return True
+            return bool(resp.json())
+        except httpx.HTTPError:
+            return True
+
     async def _delete_remote_branch_best_effort(
         self, owner: str, repo: str, branch: str, git_token: str
     ) -> None:
         """Best-effort: delete a remote branch by name.
 
-        Silently swallows errors — cleanup is not critical. Skips
-        branches that look like project defaults (main / master /
-        develop) as a last-chance safety net against bad input.
+        Silently swallows errors — cleanup is not critical. Skips branches that
+        look like project defaults (main / master / develop) and any branch that
+        still has open dependent PRs (an active integration target — deleting it
+        would strand in-flight child work).
         """
         if branch in ("main", "master", "develop", ""):
+            return
+        if await self._branch_has_open_dependents(owner, repo, branch, git_token):
+            self.log.info(
+                "branch delete skipped: open dependent PRs target it as base",
+                branch=branch,
+                owner=owner,
+                repo=repo,
+            )
             return
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -3269,15 +3355,52 @@ class GitService(BaseService):
                 ctx.owner, ctx.repo, ctx.pr_number, ctx.git_token, "squash"
             )
         if not resp.is_success:
-            # A merge refusal (typically 405 "not mergeable") means the branch
-            # conflicts with the base — a sibling landed overlapping work first.
-            # Raise the specific subclass so the completion path can rebase /
-            # close-superseded / escalate instead of failing into a respawn loop.
+            # A merge PUT on an ALREADY-MERGED PR returns the same 405 as a
+            # genuine "not mergeable" conflict. An already-merged PR (a prior
+            # cycle, a sibling, or the CEO already landed it) is idempotent
+            # success — NOT a conflict to rebase/escalate. Treating it as one is
+            # the cell_pm_complete block<->unblock respawn loop, so disambiguate
+            # before raising.
+            if await self._pr_is_merged(
+                ctx.owner, ctx.repo, ctx.pr_number, ctx.git_token
+            ):
+                return resp
+            # A real merge refusal (typically 405 "not mergeable") means the
+            # branch conflicts with the base — a sibling landed overlapping work
+            # first. Raise the specific subclass so the completion path can
+            # rebase / close-superseded / escalate instead of respawn-looping.
             raise MergeConflictError(
                 f"GitHub API refused PR merge ({resp.status_code}): {resp.text[:200]}",
                 {"owner": ctx.owner, "repo": ctx.repo, "pr": ctx.pr_number},
             )
         return resp
+
+    async def _pr_is_merged(
+        self, owner: str, repo: str, pr_number: int, git_token: str
+    ) -> bool:
+        """True if PR ``pr_number`` is already merged on GitHub.
+
+        Disambiguates an already-merged PR from a genuine conflict (both surface
+        as a 405 on the merge PUT): an already-merged PR is idempotent success,
+        not something to rebase/escalate. Best-effort — returns False on any
+        error so an indeterminate state falls through to the existing conflict
+        handling rather than masking a real failure.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=_default_git_timeout()) as client:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}",
+                    headers={
+                        "Authorization": f"Bearer {git_token}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                )
+        except httpx.HTTPError:
+            return False
+        if not resp.is_success:
+            return False
+        return bool(resp.json().get("merged"))
 
     async def pr_merge(
         self,
