@@ -1869,19 +1869,21 @@ class AgentOrchestrator:
             config, instance, agent_settings_path = await self._prepare_agent_spawn(
                 agent_id, task_id, model, git_context
             )
-        # Grok 429 loop-breaker (B4): while the xAI provider is parked
-        # rate-limited, do NOT launch another grok container — the dispatcher
-        # would otherwise re-spawn the same task every tick, 429, and burn
-        # cost. The probe-resume loop clears the park after the retry window and
-        # the next tick spawns normally. Grok-only; the Claude path is untouched.
+        # Provider-parking loop-breaker: while this agent's provider is parked
+        # (rate-limited or overloaded), do NOT launch another container — the
+        # dispatcher would otherwise re-spawn the same task every tick, hit the
+        # limit again, and burn cost. The probe-resume loop clears the park when
+        # the provider recovers and the next tick spawns normally. Covers both
+        # the GROK 429 path and the Claude session/overload paths.
         # Fail-open: a tracker read error must never block spawning.
-        if await self._grok_spawn_parked(config.provider_type):
+        if await self._provider_spawn_parked(config.provider_type):
             self._mark_task_handled(task_id)
             instance.state = AgentState.OFFLINE
             logger.info(
-                "Grok spawn skipped: provider rate-limited (parked)",
+                "Spawn skipped: provider rate-limited (parked)",
                 agent_id=agent_id,
                 task_id=task_id,
+                provider=config.provider_type,
             )
             return instance
         # Record the task as handled so later dispatchers in the same
@@ -5837,23 +5839,23 @@ Start by:
 
         return RateLimitStateTracker(provider)
 
-    async def _grok_spawn_parked(self, provider_type: str | None) -> bool:
-        """True when *provider_type* is GROK and the provider is parked rate-limited.
+    async def _provider_spawn_parked(self, provider_type: str | None) -> bool:
+        """True when *provider_type*'s provider is parked (rate-limited/overloaded).
 
-        The grok 429 loop-breaker consults this before launching a grok
-        container. Grok-only and fail-open: any error reading the tracker
-        returns False so a Redis hiccup can never block spawning.
+        The spawn loop-breaker consults this before launching any container.
+        Fail-open: any error reading the tracker returns False so a Redis hiccup
+        can never block spawning.
         """
-        from roboco.models.base import ModelProvider
-
-        if provider_type != ModelProvider.GROK.value:
+        if provider_type is None:
             return False
         try:
-            tracker = self._make_tracker(ModelProvider.GROK.value)
+            tracker = self._make_tracker(provider_type)
             return bool(await tracker.is_rate_limited())
         except Exception as exc:
             logger.warning(
-                "grok rate-limit check failed; allowing spawn", error=str(exc)
+                "provider rate-limit check failed; allowing spawn",
+                provider=provider_type,
+                error=str(exc),
             )
             return False
 

@@ -4,6 +4,8 @@ A one-shot grok run that hits an xAI 429 exits 75; the orchestrator parks the
 grok provider rate-limited instead of crash-retrying, and the spawn guard
 suppresses re-spawns until the probe-resume loop clears the park. These tests
 exercise the decision points deterministically (tracker + finalize stubbed).
+The same spawn guard now protects every provider (not just GROK), so the
+Claude session/overload paths get the same loop-break for free.
 """
 
 from __future__ import annotations
@@ -61,44 +63,43 @@ def test_is_grok_rate_limit_exit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_grok_spawn_parked_true_when_limited(
+async def test_provider_spawn_parked_true_when_limited(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     orch = AgentOrchestrator.__new__(AgentOrchestrator)
     monkeypatch.setattr(orch, "_make_tracker", lambda _p: _FakeTracker(limited=True))
-    assert await orch._grok_spawn_parked("grok") is True
+    assert await orch._provider_spawn_parked("grok") is True
+    assert await orch._provider_spawn_parked("anthropic") is True
 
 
 @pytest.mark.asyncio
-async def test_grok_spawn_parked_false_when_not_limited(
+async def test_provider_spawn_parked_false_when_not_limited(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     orch = AgentOrchestrator.__new__(AgentOrchestrator)
     monkeypatch.setattr(orch, "_make_tracker", lambda _p: _FakeTracker(limited=False))
-    assert await orch._grok_spawn_parked("grok") is False
+    assert await orch._provider_spawn_parked("grok") is False
+    assert await orch._provider_spawn_parked("anthropic") is False
 
 
 @pytest.mark.asyncio
-async def test_grok_spawn_parked_false_for_non_grok(
+async def test_provider_spawn_parked_false_when_provider_unknown() -> None:
+    orch = AgentOrchestrator.__new__(AgentOrchestrator)
+    assert await orch._provider_spawn_parked(None) is False
+
+
+@pytest.mark.asyncio
+async def test_provider_spawn_parked_fails_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    orch = AgentOrchestrator.__new__(AgentOrchestrator)
-    # Non-grok never consults the tracker (a tracker call would error here).
-    monkeypatch.setattr(
-        orch, "_make_tracker", lambda _p: (_ for _ in ()).throw(AssertionError)
-    )
-    assert await orch._grok_spawn_parked("anthropic") is False
-
-
-@pytest.mark.asyncio
-async def test_grok_spawn_parked_fails_open(monkeypatch: pytest.MonkeyPatch) -> None:
     # A tracker error must never block spawning (fail-open -> False).
     def _boom(_p: str) -> object:
         raise RuntimeError("redis down")
 
     orch = AgentOrchestrator.__new__(AgentOrchestrator)
     monkeypatch.setattr(orch, "_make_tracker", _boom)
-    assert await orch._grok_spawn_parked("grok") is False
+    assert await orch._provider_spawn_parked("grok") is False
+    assert await orch._provider_spawn_parked("anthropic") is False
 
 
 @pytest.mark.asyncio
