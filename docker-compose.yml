@@ -358,6 +358,24 @@ services:
       # default is OFF; enabled HERE (personal deploy), deliberately left OFF in
       # docker-compose.registry.yml so the published default stays conservative.
       ROBOCO_CONVENTIONS_ENABLED: ${ROBOCO_CONVENTIONS_ENABLED:-true}
+      # Autonomy engines shipped in 0.12.0 / 0.13.0 — all default-OFF in config;
+      # ARMED here for the NAS deploy (our live test bed). Each is bounded +
+      # CEO-gated by construction and overridable via .env. Left OFF in
+      # docker-compose.registry.yml so the published default stays conservative.
+      #   - CI-watch: opens a fix task when a watched project's default-branch CI
+      #     goes red — only for projects with the per-project ci_watch_enabled
+      #     column set; never auto-merges (rides the PR-review gate).
+      #   - Dep-update bot: weekly lockfile-diff probe -> "update dependencies"
+      #     task — only for projects with a dep_update_command set; never merges.
+      #   - Release manager: deterministic readiness sweep -> ONE release proposal
+      #     HELD for the CEO; the executor publishes only on CEO approval + green
+      #     CI (reuses SELF_HEAL_PROJECT_SLUG as the RoboCo repo).
+      #   - Org-memory loop: distils a completion lesson + auto-injects relevant
+      #     past lessons/playbooks into each claim's briefing (local model only).
+      ROBOCO_CI_WATCH_ENABLED: ${ROBOCO_CI_WATCH_ENABLED:-true}
+      ROBOCO_DEP_UPDATE_ENABLED: ${ROBOCO_DEP_UPDATE_ENABLED:-true}
+      ROBOCO_RELEASE_MANAGER_ENABLED: ${ROBOCO_RELEASE_MANAGER_ENABLED:-true}
+      ROBOCO_ORG_MEMORY_ENABLED: ${ROBOCO_ORG_MEMORY_ENABLED:-true}
     volumes:
       # Docker socket - allows spawning agent containers
       - /var/run/docker.sock:/var/run/docker.sock
