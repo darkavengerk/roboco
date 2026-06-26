@@ -178,6 +178,52 @@ class PrReviewContent(_Content):
         return _join(parts)
 
 
+# GitHub review events the PR-reviewer verb accepts.
+_EVENT_APPROVE = "APPROVE"
+_EVENT_REQUEST_CHANGES = "REQUEST_CHANGES"
+_BLOCKING_SEVERITIES = frozenset({Severity.BLOCKER, Severity.MAJOR})
+
+
+def pr_review_conflict(
+    event: str, findings: list[dict[str, Any]] | None
+) -> tuple[str, str] | None:
+    """Reason a PR-review ``(event, findings)`` pair is self-contradictory.
+
+    Returns ``(message, remediate)`` when the verdict the event implies cannot
+    be reconciled with the findings, else ``None``. The recorded
+    ``notes_structured.pr_review.verdict`` and the posted GitHub review event
+    both derive from ``event``, so this is what stops an approving review from
+    being filed — or posted to a contributor's PR — as a blocking
+    "changes requested":
+
+    - ``REQUEST_CHANGES`` with no findings blocks a PR without stating why
+      (parity with the in-path gate's ``pr_fail`` "at least one issue" rule);
+      it is almost always a forgotten ``event='APPROVE'``.
+    - ``APPROVE`` over a ``blocker``/``major`` finding approves a known
+      significant defect.
+
+    A neutral ``COMMENT`` carries no verdict and is never in conflict.
+    """
+    items = findings or []
+    if event == _EVENT_APPROVE:
+        if any(
+            str(f.get("severity", "")).lower() in _BLOCKING_SEVERITIES for f in items
+        ):
+            return (
+                "cannot APPROVE a PR that has blocker/major findings",
+                "resolve the blocking findings (or lower their severity), or "
+                "post event='REQUEST_CHANGES'",
+            )
+        return None
+    if event == _EVENT_REQUEST_CHANGES and not items:
+        return (
+            "a changes-requested review must cite at least one finding",
+            "pass findings=[{file, severity, expected, actual}, ...] to request "
+            "changes, or event='APPROVE' to approve a clean PR",
+        )
+    return None
+
+
 class TaskDescription(_Content):
     """A well-formed task description (shared by PM delegate + Intake draft)."""
 

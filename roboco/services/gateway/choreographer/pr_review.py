@@ -21,7 +21,11 @@ import structlog
 
 from roboco.foundation.policy import lifecycle as spec_module
 from roboco.foundation.policy import tracing as _tr
-from roboco.foundation.policy.content import ContentValidationError, validate_content
+from roboco.foundation.policy.content import (
+    ContentValidationError,
+    pr_review_conflict,
+    validate_content,
+)
 from roboco.services.content_notes import apply_structured_note
 from roboco.services.gateway.envelope import Envelope
 
@@ -215,6 +219,21 @@ class PRReviewerMixin(_Base):
         if isinstance(pre, Envelope):
             return pre
         agent, role_str, briefing, spec_ctx = pre
+        # Refuse a verdict that contradicts the findings BEFORE anything is
+        # recorded or posted to the contributor's PR (e.g. a forgotten
+        # event='APPROVE' that defaults to a blocking REQUEST_CHANGES with no
+        # findings cited).
+        conflict = await self._verdict_consistency_gate(
+            t,
+            reviewer_agent_id,
+            task_id,
+            role_str,
+            briefing,
+            event=event,
+            findings=findings,
+        )
+        if conflict is not None:
+            return conflict
         slug = await self._project_slug_for(t)
         pr_number = t.pr_number
         post_body = self._resolve_post_body(t, body, findings, event)
@@ -298,6 +317,39 @@ class PRReviewerMixin(_Base):
         if gate is not None:
             return gate
         return (agent, role_str, briefing, spec_ctx)
+
+    async def _verdict_consistency_gate(
+        self,
+        t: Any,
+        reviewer_agent_id: UUID,
+        task_id: UUID,
+        role_str: str,
+        briefing: dict[str, Any],
+        *,
+        event: str,
+        findings: list[dict[str, Any]] | None,
+    ) -> Envelope | None:
+        """Reject a self-contradicting (event, findings) pair, else None.
+
+        The recorded ``pr_review`` verdict and the posted GitHub review event
+        both derive from ``event``; ``pr_review_conflict`` is the pure invariant
+        that keeps them honest. Runs before any side effect so a contradictory
+        review never reaches the task record or the PR.
+        """
+        conflict = pr_review_conflict(event, findings)
+        if conflict is None:
+            return None
+        message, remediate = conflict
+        return await self._emit_rejection(
+            Envelope.invalid_state(
+                message=message,
+                remediate=remediate,
+                context_briefing=briefing,
+            ).with_introspection(task=t, role=role_str),
+            agent_id=reviewer_agent_id,
+            task_id=task_id,
+            verb="post_pr_review",
+        )
 
     async def _resolve_role(
         self,

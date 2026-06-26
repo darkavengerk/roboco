@@ -376,8 +376,11 @@ def post_pr_review(
     {file, line?, severity (blocker|major|minor|nit), expected, actual}. When
     findings are given, the GitHub comment is GENERATED in the RoboCo format
     (summary + a findings table + verdict) — do not hand-format it in body.
-    event: REQUEST_CHANGES (default), APPROVE, or COMMENT. Requires a
-    journal:learning entry first.
+    event: REQUEST_CHANGES (default), APPROVE, or COMMENT. The verdict must
+    match the findings: to APPROVE a clean PR pass event='APPROVE' (do not rely
+    on the default); REQUEST_CHANGES must cite at least one finding, and APPROVE
+    may not carry a blocker/major finding. Requires a journal:learning entry
+    first.
     """
     return _post(
         _role_path("post_pr_review"),

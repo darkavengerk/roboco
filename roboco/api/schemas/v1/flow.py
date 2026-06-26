@@ -133,7 +133,14 @@ class ClaimPrReviewRequest(BaseModel):
 class PostPrReviewRequest(BaseModel):
     task_id: UUID
     body: str = Field(..., min_length=1)
-    event: str = "REQUEST_CHANGES"
+    event: str = Field(
+        default="REQUEST_CHANGES",
+        description=(
+            "APPROVE, REQUEST_CHANGES, or COMMENT. The verdict must match the "
+            "findings: REQUEST_CHANGES needs >=1 finding; APPROVE may not carry a "
+            "blocker/major finding. Pass APPROVE explicitly to approve a clean PR."
+        ),
+    )
     findings: list[dict[str, Any]] = Field(
         default_factory=list,
         description=(

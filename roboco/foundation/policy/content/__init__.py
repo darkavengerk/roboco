@@ -20,6 +20,7 @@ from .models import (
     ResumptionNote,
     TaskDescription,
     WorkUnit,
+    pr_review_conflict,
     required_shape,
     validate_content,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "TaskDescription",
     "Verdict",
     "WorkUnit",
+    "pr_review_conflict",
     "required_shape",
     "validate_content",
 ]
