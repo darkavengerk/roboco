@@ -13,7 +13,7 @@ PROFILE="${1:-}"
 ACTION="${2:-up}"
 case "$PROFILE" in
   research|novel) ;;
-  *) echo "usage: $0 {research|novel} [up|down|logs]"; exit 2 ;;
+  *) echo "usage: $0 {research|novel} [up|down|logs|build]"; exit 2 ;;
 esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -73,7 +73,18 @@ case "$ACTION" in
     echo "  db=$ROBOCO_DATABASE_NAME  data=$ROBOCO_DATA_DIR  prompts=$ROBOCO_PROMPTS_OVERLAY_HOST"
     echo "  panel: http://localhost:3000"
     ;;
+  build)
+    # The role images do `FROM roboco-agent-base`; `compose build` builds every
+    # service in PARALLEL, so the base must be built ALONE first — otherwise the
+    # dependents resolve `roboco-agent-base` against a registry mid-build and
+    # fail with "pull access denied". Build base, then everything else. The image
+    # names are project-agnostic, so this is a one-time cost shared by both
+    # profiles; `up` reuses the cached images. Run once on a fresh machine.
+    "${COMPOSE[@]}" build agent-base-image
+    "${COMPOSE[@]}" build
+    echo "✓ images built — now: $0 $PROFILE up"
+    ;;
   down)  "${COMPOSE[@]}" down ;;
   logs)  "${COMPOSE[@]}" logs -f --tail=120 ;;
-  *) echo "unknown action: $ACTION (use up|down|logs)"; exit 2 ;;
+  *) echo "unknown action: $ACTION (use up|down|logs|build)"; exit 2 ;;
 esac
