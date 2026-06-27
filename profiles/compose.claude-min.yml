@@ -1,0 +1,79 @@
+# Claude-agents + minimal-Ollama overlay (stacked AFTER compose.profile.yml).
+#
+# WHAT THIS DOES
+#   The AGENTS already run on Claude (ClaudeCodeProvider, the ANTHROPIC default
+#   — each agent mounts ~/.claude). Ollama is NOT the writer; it is only the
+#   in-house RAG engine: embeddings + a synthesis LLM. The stock compose pulls
+#   `glm-5:cloud` for that LLM, which needs an Ollama Cloud key and FATAL-exits
+#   ollama-init when it can't pull. This overlay swaps that one model for a
+#   small LOCAL model so RAG runs with NO cloud key. Embeddings stay on
+#   qwen3-embedding (Claude has no embeddings API — a local embedder is
+#   mandatory and tiny).
+#
+#   It also trims the first build to the 7 agent images a single writing cell
+#   uses, and turns off the code-delivery autonomy engines (CI-watch, releases,
+#   conventions, …) that are noise for prose.
+#
+# Always safe to stack: under real docker each profile is still isolated by the
+# `-p roboco-<profile>` project name.
+services:
+  # Pull a LOCAL RAG model instead of glm-5:cloud (no Ollama Cloud key). The
+  # `$$` escapes `$` for docker-compose variable substitution (mirrors base).
+  ollama-init:
+    command:
+      - |
+        echo "=== Pulling embedding model (qwen3-embedding:0.6b) — best-effort ==="
+        curl -sN http://ollama:11434/api/pull -d '{"name":"qwen3-embedding:0.6b"}' | while read -r line; do
+          status=$$(echo "$$line" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+          [ -n "$$status" ] && echo "  $$status"
+        done || echo "  (pull failed — relying on the cached model)"
+        echo "=== Pulling LOCAL RAG model (qwen2.5:3b) — no cloud key ==="
+        curl -sN http://ollama:11434/api/pull -d '{"name":"qwen2.5:3b"}' | while read -r line; do
+          status=$$(echo "$$line" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+          [ -n "$$status" ] && echo "  $$status"
+        done || echo "  (pull failed — relying on the cached model)"
+        echo "=== Verifying models are present (the real success gate) ==="
+        curl -sf http://ollama:11434/api/tags | grep -q "qwen3-embedding" || { echo "FATAL: qwen3-embedding missing and could not be pulled"; exit 1; }
+        curl -sf http://ollama:11434/api/tags | grep -q "qwen2.5" || { echo "FATAL: qwen2.5 missing and could not be pulled"; exit 1; }
+        echo "=== All models ready! ==="
+
+  orchestrator:
+    environment:
+      # Point the RAG synthesis LLM at the local model pulled above.
+      ROBOCO_LOCAL_LLM_MODEL: qwen2.5:3b
+      # HyDE adds extra local-LLM calls per query; off keeps retrieval fast for
+      # a first run (vector + full-text search still work). Flip on later.
+      ROBOCO_RAG_USE_HYDE: "false"
+      # Local run: the stock value is a NAS LAN IP that yields dead links.
+      ROBOCO_PUBLIC_BASE_URL: "http://localhost:8000"
+      # Writing profile: the code-delivery autonomy engines are irrelevant /
+      # noisy for prose. All default-off upstream; the NAS compose arms them.
+      ROBOCO_EXTERNAL_PR_ENABLED: "false"
+      ROBOCO_CI_WATCH_ENABLED: "false"
+      ROBOCO_DEP_UPDATE_ENABLED: "false"
+      ROBOCO_RELEASE_MANAGER_ENABLED: "false"
+      ROBOCO_ORG_MEMORY_ENABLED: "false"
+      ROBOCO_CONVENTIONS_ENABLED: "false"
+      ROBOCO_TOOLCHAIN_MATCH_ENABLED: "false"
+
+  # Agent images a single writing cell never spawns (frontend / ux / secretary /
+  # the Grok-runtime variants). Gating them behind the `full` profile means the
+  # first `up` builds only the 7 images a novel uses: base, pm, dev-be, qa-be,
+  # doc, prompter, pr-reviewer. Build the rest later with:
+  #   docker-compose -f docker-compose.yaml -f profiles/compose.profile.yml \
+  #     -f profiles/compose.podman.yml -f profiles/compose.claude-min.yml \
+  #     -p roboco-novel --profile full build
+  agent-dev-fe-image:
+    profiles: ["full"]
+  agent-qa-fe-image:
+    profiles: ["full"]
+  agent-ux-image:
+    profiles: ["full"]
+  agent-secretary-image:
+    profiles: ["full"]
+  agent-grok-image:
+    profiles: ["full"]
+  agent-grok-prompter-image:
+    profiles: ["full"]
+  agent-grok-secretary-image:
+    profiles: ["full"]

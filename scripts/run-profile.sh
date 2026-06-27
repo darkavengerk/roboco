@@ -49,11 +49,14 @@ fi
 
 # compose.podman.yml swaps the stateful bind mounts for named volumes — required
 # under rootless podman + SELinux, harmless under real docker (still isolated
-# per project name), so it is always stacked.
+# per project name). compose.claude-min.yml runs RAG on a local model (no Ollama
+# Cloud key), trims the first build, and turns off code-delivery autonomy for a
+# writing run — agents stay on Claude. Both are always stacked.
 COMPOSE=("${COMPOSE_BASE[@]}"
   -f docker-compose.yaml
   -f profiles/compose.profile.yml
   -f profiles/compose.podman.yml
+  -f profiles/compose.claude-min.yml
   -p "roboco-$PROFILE")
 
 case "$ACTION" in
