@@ -70,6 +70,13 @@ dmypy.json
 .env.local
 .env.*.local
 
+# Domain profiles — real env files carry per-domain config (keep the *.example
+# templates tracked); per-domain data roots mirror the ignored /data.
+profiles/*/.env.research
+profiles/*/.env.novel
+/data-research
+/data-novel
+
 # Logs
 *.log
 logs/

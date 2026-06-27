@@ -4,6 +4,7 @@ Factory Base Utilities
 Shared utilities for agent factory functions.
 """
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -52,6 +53,33 @@ def _load_layer(layer_path: Path) -> str:
     return layer_path.read_text().strip()
 
 
+def _prompts_overlay_dir() -> Path | None:
+    """The optional domain-pack overlay root from ``ROBOCO_PROMPTS_OVERLAY_DIR``.
+
+    Lets a fork keep its domain prompts (e.g. a novel- or research-writing
+    profile) OUTSIDE the upstream-tracked ``agents/prompts`` tree, so syncing
+    upstream stays conflict-free.
+    """
+    raw = os.getenv("ROBOCO_PROMPTS_OVERLAY_DIR")
+    return Path(raw).expanduser() if raw else None
+
+
+def _load_overlaid(base: Path, *parts: str) -> str:
+    """Load a prompt layer, preferring the overlay copy when one exists.
+
+    Resolution is PER FILE: for each layer, an identically-named file under
+    the overlay dir wins; otherwise the in-tree default at ``base`` is used.
+    A domain pack therefore ships only the layers it actually overrides
+    (e.g. ``roles/developer.md``) and inherits everything else unchanged.
+    """
+    overlay = _prompts_overlay_dir()
+    if overlay is not None:
+        candidate = overlay.joinpath(*parts)
+        if candidate.exists():
+            return _load_layer(candidate)
+    return _load_layer(base.joinpath(*parts))
+
+
 _ROLE_LAYER_MAP: dict[str, str] = {
     # Cell members
     "developer": "developer.md",
@@ -87,7 +115,7 @@ def _role_layer(prompts_path: Path, role: "AgentRole") -> str | None:
     role_file = _ROLE_LAYER_MAP.get(role_value)
     if not role_file:
         return None
-    return _load_layer(prompts_path / "roles" / role_file)
+    return _load_overlaid(prompts_path, "roles", role_file)
 
 
 def _team_layer(prompts_path: Path, team: "Team | None") -> str | None:
@@ -98,7 +126,7 @@ def _team_layer(prompts_path: Path, team: "Team | None") -> str | None:
     team_file = _TEAM_LAYER_MAP.get(team_value)
     if not team_file:
         return None
-    return _load_layer(prompts_path / "teams" / team_file)
+    return _load_overlaid(prompts_path, "teams", team_file)
 
 
 def _autogen_verbs_layer(prompts_path: Path, role: "AgentRole") -> str | None:
@@ -112,7 +140,7 @@ def _autogen_verbs_layer(prompts_path: Path, role: "AgentRole") -> str | None:
     drift class where the prompt and the accepted body shape diverged.
     """
     role_value = role.value if hasattr(role, "value") else str(role)
-    return _load_layer(prompts_path / "_generated" / f"{role_value}.md")
+    return _load_overlaid(prompts_path, "_generated", f"{role_value}.md")
 
 
 # Built-in Claude Code tools each role's session needs at spawn time.
@@ -197,7 +225,7 @@ def _lifecycle_layer(prompts_path: Path, role: "AgentRole") -> str | None:
     cannot drift from the spec.
     """
     role_value = role.value if hasattr(role, "value") else str(role)
-    return _load_layer(prompts_path / "_generated" / f"lifecycle-{role_value}.md")
+    return _load_overlaid(prompts_path, "_generated", f"lifecycle-{role_value}.md")
 
 
 def compose_prompt(
@@ -239,11 +267,11 @@ def compose_prompt(
     for layer in (
         _tool_load_directive_layer(role),
         _lifecycle_layer(prompts_path, role),
-        _load_layer(prompts_path / "base.md"),
+        _load_overlaid(prompts_path, "base.md"),
         _role_layer(prompts_path, role),
         _autogen_verbs_layer(prompts_path, role),
         _team_layer(prompts_path, team),
-        _load_layer(prompts_path / "identities" / f"{agent_slug}.md"),
+        _load_overlaid(prompts_path, "identities", f"{agent_slug}.md"),
         ambient,
     ):
         if layer:

@@ -1,0 +1,28 @@
+# Profile overlay — parameterizes the few things the base compose hardcodes so
+# ONE stack can run against a domain's own database and prompt pack.
+#
+# Driven entirely by env, loaded by scripts/run-profile.sh from the profile's
+# .env file. Everything else (data dir, workspaces, logs, host paths) is already
+# `${VAR:-default}` in docker-compose.yaml, so the .env file alone isolates it.
+#
+# NOTE: only ONE profile runs at a time. The base compose pins `container_name`
+# (roboco-postgres, roboco-orchestrator, …) and nginx binds host :3000, so two
+# profiles up simultaneously would collide. Sequential switch is the supported
+# model — see profiles/README.md for the simultaneous-run blockers.
+services:
+  postgres:
+    environment:
+      # Fresh-volume init creates the domain DB; createdb in run-profile.sh is
+      # the belt-and-suspenders path for an already-initialised volume.
+      POSTGRES_DB: ${ROBOCO_DATABASE_NAME:-roboco}
+
+  orchestrator:
+    environment:
+      # Base compose hardcodes this to `roboco`; the profile overrides it.
+      ROBOCO_DATABASE_NAME: ${ROBOCO_DATABASE_NAME:-roboco}
+      # Container path the prompt loader reads (see roboco/agents/factories/_base.py).
+      ROBOCO_PROMPTS_OVERLAY_DIR: /app/prompt-overlay
+    volumes:
+      # Domain prompt pack — only the layers it overrides; the rest fall back to
+      # the in-tree agents/prompts. Host path is exported by run-profile.sh.
+      - ${ROBOCO_PROMPTS_OVERLAY_HOST}:/app/prompt-overlay:ro
