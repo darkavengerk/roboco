@@ -1,0 +1,23 @@
+# Rootless-podman overlay (optional, stacked AFTER compose.profile.yml).
+#
+# Bazzite/Fedora run RoboCo under rootless podman + SELinux, where the base
+# compose's host bind mounts for the stateful services fail: the container's
+# drop-priv user can't access a host dir that lacks the SELinux container label
+# (and rootless UID remapping compounds it). Named volumes sidestep both —
+# podman creates them in user storage with the right label/ownership.
+#
+# Project-prefixed (roboco-<profile>_*), so each profile still gets isolated
+# state. App bind mounts (orchestrator workspaces/logs) are left as-is: the
+# orchestrator runs as container-root, which maps to the invoking user, so it
+# can write the user-owned ./data dirs without relabeling.
+services:
+  postgres:
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  redis:
+    volumes:
+      - redisdata:/data
+
+volumes:
+  pgdata:
+  redisdata:

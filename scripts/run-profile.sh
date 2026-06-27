@@ -37,9 +37,23 @@ set +a
 # Absolute host path of the domain prompt overlay (compose binds it read-only).
 export ROBOCO_PROMPTS_OVERLAY_HOST="$ROOT/profiles/$PROFILE/prompts"
 
-COMPOSE=(docker compose
+# Pick the compose command: prefer the v2 plugin (real docker), fall back to the
+# standalone binary scripts/ drops in ~/.local/bin for the rootless-podman path.
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_BASE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_BASE=(docker-compose)
+else
+  echo "✗ no 'docker compose' or 'docker-compose' found"; exit 1
+fi
+
+# compose.podman.yml swaps the stateful bind mounts for named volumes — required
+# under rootless podman + SELinux, harmless under real docker (still isolated
+# per project name), so it is always stacked.
+COMPOSE=("${COMPOSE_BASE[@]}"
   -f docker-compose.yaml
   -f profiles/compose.profile.yml
+  -f profiles/compose.podman.yml
   -p "roboco-$PROFILE")
 
 case "$ACTION" in
