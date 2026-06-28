@@ -305,27 +305,27 @@ function PerformanceTabContent() {
         <h2 className="text-lg font-semibold mb-3">Task Status</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-5">
           <MetricCard
-            title="Pending"
+            title="집필 대기"
             value={pending}
             icon={<Clock className="h-4 w-4 text-gray-500" />}
           />
           <MetricCard
-            title="In Progress"
+            title="집필 중"
             value={inProgress}
             icon={<Activity className="h-4 w-4 text-blue-500" />}
           />
           <MetricCard
-            title="Blocked"
+            title="보류"
             value={blocked}
             icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
           />
           <MetricCard
-            title="Awaiting QA"
+            title="편집 대기"
             value={awaitingQa}
             icon={<Timer className="h-4 w-4 text-yellow-500" />}
           />
           <MetricCard
-            title="Completed"
+            title="원고 확정"
             value={completed}
             icon={<CheckCircle className="h-4 w-4 text-green-500" />}
           />

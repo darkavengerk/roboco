@@ -12,6 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ChevronDown, X } from "lucide-react";
+import { STATUS_LABELS, TEAM_LABELS, TASK_TYPE_LABELS } from "@/lib/labels";
 
 interface TaskFiltersProps {
   searchQuery: string;
@@ -32,41 +33,6 @@ interface TaskFiltersProps {
   productOptions?: { value: string; label: string }[];
 }
 
-const STATUS_LABELS: Record<TaskStatus, string> = {
-  [TaskStatus.BACKLOG]: "Backlog",
-  [TaskStatus.PENDING]: "Pending",
-  [TaskStatus.CLAIMED]: "Claimed",
-  [TaskStatus.IN_PROGRESS]: "In Progress",
-  [TaskStatus.BLOCKED]: "Blocked",
-  [TaskStatus.PAUSED]: "Paused",
-  [TaskStatus.VERIFYING]: "Verifying",
-  [TaskStatus.NEEDS_REVISION]: "Needs Revision",
-  [TaskStatus.AWAITING_QA]: "Awaiting QA",
-  [TaskStatus.AWAITING_DOCUMENTATION]: "Awaiting Docs",
-  [TaskStatus.AWAITING_PR_REVIEW]: "Awaiting PR Review",
-  [TaskStatus.AWAITING_PM_REVIEW]: "Awaiting PM Review",
-  [TaskStatus.AWAITING_CEO_APPROVAL]: "Awaiting CEO Approval",
-  [TaskStatus.COMPLETED]: "Completed",
-  [TaskStatus.CANCELLED]: "Cancelled",
-};
-
-const TEAM_LABELS: Record<Team, string> = {
-  [Team.BOARD]: "Board",
-  [Team.MAIN_PM]: "Main PM",
-  [Team.BACKEND]: "Backend",
-  [Team.FRONTEND]: "Frontend",
-  [Team.UX_UI]: "UX/UI",
-  [Team.MARKETING]: "Marketing",
-};
-
-const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  [TaskType.CODE]: "Code",
-  [TaskType.DOCUMENTATION]: "Documentation",
-  [TaskType.RESEARCH]: "Research",
-  [TaskType.PLANNING]: "Planning",
-  [TaskType.DESIGN]: "Design",
-  [TaskType.ADMINISTRATIVE]: "Administrative",
-};
 
 export function TaskFilters({
   searchQuery,

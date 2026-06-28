@@ -12,9 +12,9 @@ const statusEmoji: Record<string, string> = {
 };
 
 const statusLabel: Record<string, string> = {
-  ok: "OK",
-  slow: "SLOW",
-  critical: "CRITICAL",
+  ok: "정상",
+  slow: "지연",
+  critical: "경고",
 };
 
 const statusColor: Record<string, string> = {

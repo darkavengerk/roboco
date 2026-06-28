@@ -29,34 +29,12 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ROLE_LABELS, TEAM_LABELS } from "@/lib/labels";
 import {
   AgentStatusCards,
   ResolveWaitDialog,
   AgentStreamViewer,
 } from "@/components/agents";
-
-// Role display labels
-const ROLE_LABELS: Record<string, string> = {
-  ceo: "CEO",
-  product_owner: "Product Owner",
-  head_marketing: "Head of Marketing",
-  auditor: "Auditor",
-  main_pm: "Main PM",
-  cell_pm: "Cell PM",
-  developer: "Developer",
-  qa: "QA Engineer",
-  documenter: "Documenter",
-};
-
-// Team display labels
-const TEAM_LABELS: Record<string, string> = {
-  board: "Board",
-  main_pm: "Main PM",
-  backend: "Backend",
-  frontend: "Frontend",
-  ux_ui: "UX/UI",
-  marketing: "Marketing",
-};
 
 export default function AgentDetailPage() {
   const params = useParams();

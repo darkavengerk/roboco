@@ -81,36 +81,36 @@ const AGENT_UUIDS: Record<string, string> = {
 // Static agent name mapping (slug -> display name)
 // This matches the backend seed data
 const AGENT_NAMES: Record<string, string> = {
-  // Board / Management
-  "main-pm": "Main PM",
-  "product-owner": "Product Owner",
-  "head-marketing": "Head Marketing",
-  auditor: "Auditor",
-  // Backend Cell
-  "be-pm": "Backend PM",
-  "be-dev-1": "Backend Dev 1",
-  "be-dev-2": "Backend Dev 2",
-  "be-qa": "Backend QA",
-  "be-doc": "Backend Doc",
-  // Frontend Cell
-  "fe-pm": "Frontend PM",
-  "fe-dev-1": "Frontend Dev 1",
-  "fe-dev-2": "Frontend Dev 2",
-  "fe-qa": "Frontend QA",
-  "fe-doc": "Frontend Doc",
-  // UX/UI Cell
-  "ux-pm": "UX/UI PM",
-  "ux-dev-1": "UX/UI Dev 1",
-  "ux-dev-2": "UX/UI Dev 2",
-  "ux-qa": "UX/UI QA",
-  "ux-doc": "UX/UI Doc",
-  // CEO (human)
-  ceo: "CEO",
-  CEO: "CEO",
+  // Editorial bureau / management
+  "main-pm": "총괄 편집장",
+  "product-owner": "기획 편집",
+  "head-marketing": "독자·시장 편집",
+  "auditor": "감수",
+  // Structure section (backend)
+  "be-pm": "구조팀 편집",
+  "be-dev-1": "구조 작가 1",
+  "be-dev-2": "구조 작가 2",
+  "be-qa": "구조 편집",
+  "be-doc": "구조 설정",
+  // Prose section (frontend)
+  "fe-pm": "문장팀 편집",
+  "fe-dev-1": "문장 작가 1",
+  "fe-dev-2": "문장 작가 2",
+  "fe-qa": "문장 편집",
+  "fe-doc": "문장 설정",
+  // Staging section (ux_ui)
+  "ux-pm": "연출팀 편집",
+  "ux-dev-1": "연출 작가 1",
+  "ux-dev-2": "연출 작가 2",
+  "ux-qa": "연출 편집",
+  "ux-doc": "연출 설정",
+  // Author (human)
+  "ceo": "작가",
+  "CEO": "작가",
   // Board-adjacent singletons
-  "intake-1": "Intake",
-  "secretary-1": "Secretary",
-  "pr-reviewer-1": "PR Reviewer",
+  "intake-1": "기획 인터뷰",
+  "secretary-1": "비서실",
+  "pr-reviewer-1": "원고 심사역",
 };
 
 /**

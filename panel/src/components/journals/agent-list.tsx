@@ -3,6 +3,7 @@
 import { Agent, Team, AgentRole } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentItem } from "./agent-item";
+import { TEAM_LABELS } from "@/lib/labels";
 
 interface AgentListProps {
   agents: Agent[] | undefined;
@@ -60,16 +61,6 @@ function groupByTeam(agents: Agent[]): Record<string, Agent[]> {
 
   return groups;
 }
-
-const TEAM_LABELS: Record<string, string> = {
-  backend: "Backend",
-  frontend: "Frontend",
-  ux_ui: "UX/UI",
-  marketing: "Marketing",
-  board: "Board",
-  support: "Support",
-  management: "Management",
-};
 
 export function AgentList({
   agents,

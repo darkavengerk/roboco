@@ -24,9 +24,9 @@ interface ProjectFiltersProps {
 }
 
 const cells: { value: Team; label: string }[] = [
-  { value: Team.BACKEND, label: "Backend" },
-  { value: Team.FRONTEND, label: "Frontend" },
-  { value: Team.UX_UI, label: "UX/UI" },
+  { value: Team.BACKEND, label: "구조팀" },
+  { value: Team.FRONTEND, label: "문장팀" },
+  { value: Team.UX_UI, label: "연출팀" },
 ];
 
 export function ProjectFilters({

@@ -19,15 +19,14 @@ import { Label } from "@/components/ui/label";
 import { Rocket } from "lucide-react";
 import type { Task } from "@/types";
 import { toast } from "sonner";
+import { ROLE_LABELS } from "@/lib/labels";
 
 interface ApproveAndStartButtonProps {
   task: Task;
 }
 
 function roleLabel(role: string): string {
-  if (role === "product_owner") return "Product Owner";
-  if (role === "head_marketing") return "Head of Marketing";
-  return role;
+  return ROLE_LABELS[role] || role;
 }
 
 export function ApproveAndStartButton({ task }: ApproveAndStartButtonProps) {

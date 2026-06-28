@@ -15,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { User, Users } from "lucide-react";
 import { resolveToSlug } from "@/lib/agent-utils";
+import { ROLE_LABELS } from "@/lib/labels";
 
 interface AgentSelectorProps {
   value: string | null;
@@ -25,23 +26,6 @@ interface AgentSelectorProps {
   disabled?: boolean;
   allowClear?: boolean;
 }
-
-// Role display names
-const ROLE_LABELS: Record<AgentRole, string> = {
-  [AgentRole.SYSTEM]: "System",
-  [AgentRole.CEO]: "CEO",
-  [AgentRole.PRODUCT_OWNER]: "Product Owner",
-  [AgentRole.HEAD_MARKETING]: "Head Marketing",
-  [AgentRole.AUDITOR]: "Auditor",
-  [AgentRole.PR_REVIEWER]: "PR Reviewer",
-  [AgentRole.MAIN_PM]: "Main PM",
-  [AgentRole.CELL_PM]: "Cell PM",
-  [AgentRole.DEVELOPER]: "Developer",
-  [AgentRole.QA]: "QA",
-  [AgentRole.DOCUMENTER]: "Documenter",
-  [AgentRole.PROMPTER]: "Prompter",
-  [AgentRole.SECRETARY]: "Secretary",
-};
 
 export function AgentSelector({
   value,

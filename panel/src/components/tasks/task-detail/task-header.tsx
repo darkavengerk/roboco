@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Task, TaskStatus, Team } from "@/types";
+import { STATUS_LABELS as statusLabels } from "@/lib/labels";
 import {
   useDeleteTask,
   useUpdateTask,
@@ -88,24 +89,6 @@ const statusColors: Record<TaskStatus, string> = {
     "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
   [TaskStatus.CANCELLED]:
     "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
-};
-
-const statusLabels: Record<TaskStatus, string> = {
-  [TaskStatus.BACKLOG]: "Backlog",
-  [TaskStatus.PENDING]: "Pending",
-  [TaskStatus.CLAIMED]: "Claimed",
-  [TaskStatus.IN_PROGRESS]: "In Progress",
-  [TaskStatus.BLOCKED]: "Blocked",
-  [TaskStatus.PAUSED]: "Paused",
-  [TaskStatus.VERIFYING]: "Verifying",
-  [TaskStatus.NEEDS_REVISION]: "Needs Revision",
-  [TaskStatus.AWAITING_QA]: "Awaiting QA",
-  [TaskStatus.AWAITING_DOCUMENTATION]: "Awaiting Docs",
-  [TaskStatus.AWAITING_PR_REVIEW]: "PR Review",
-  [TaskStatus.AWAITING_PM_REVIEW]: "PM Review",
-  [TaskStatus.AWAITING_CEO_APPROVAL]: "CEO Approval",
-  [TaskStatus.COMPLETED]: "Completed",
-  [TaskStatus.CANCELLED]: "Cancelled",
 };
 
 interface TaskHeaderProps {

@@ -94,7 +94,7 @@ export default function AgentsPage() {
 
       {/* Agent Grids - Dynamically loaded from API */}
       <AgentGrid
-        title="Board"
+        title="편집위원회"
         agents={getBoardAgents(agents)}
         agentStatuses={agentStatuses}
         agentUsage={agentUsageMap}
@@ -103,7 +103,7 @@ export default function AgentsPage() {
       />
 
       <AgentGrid
-        title="Main PM"
+        title="편집국"
         agents={getMainPm(agents)}
         agentStatuses={agentStatuses}
         agentUsage={agentUsageMap}
@@ -112,7 +112,7 @@ export default function AgentsPage() {
       />
 
       <AgentGrid
-        title="Backend Cell"
+        title="구조팀"
         agents={getBackendAgents(agents)}
         agentStatuses={agentStatuses}
         agentUsage={agentUsageMap}
@@ -121,7 +121,7 @@ export default function AgentsPage() {
       />
 
       <AgentGrid
-        title="Frontend Cell"
+        title="문장팀"
         agents={getFrontendAgents(agents)}
         agentStatuses={agentStatuses}
         agentUsage={agentUsageMap}
@@ -130,7 +130,7 @@ export default function AgentsPage() {
       />
 
       <AgentGrid
-        title="UX/UI Cell"
+        title="연출팀"
         agents={getUxAgents(agents)}
         agentStatuses={agentStatuses}
         agentUsage={agentUsageMap}
@@ -142,7 +142,7 @@ export default function AgentsPage() {
           and the root PR Reviewer — only rendered when at least one matches */}
       {getSupportAgents(agents).length > 0 && (
         <AgentGrid
-          title="Support"
+          title="지원"
           agents={getSupportAgents(agents)}
           agentStatuses={agentStatuses}
           agentUsage={agentUsageMap}

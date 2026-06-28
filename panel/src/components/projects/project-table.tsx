@@ -15,20 +15,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ExternalLink, Pencil, GitBranch, Key, KeyRound } from "lucide-react";
 import type { ProjectSummary, Team } from "@/types";
 import { EditProjectDialog } from "./edit-project-dialog";
+import { TEAM_LABELS as teamLabels } from "@/lib/labels";
 
 interface ProjectTableProps {
   projects: ProjectSummary[] | undefined;
   isLoading: boolean;
 }
-
-const teamLabels: Record<Team, string> = {
-  board: "Board",
-  main_pm: "Main PM",
-  backend: "Backend",
-  frontend: "Frontend",
-  ux_ui: "UX/UI",
-  marketing: "Marketing",
-};
 
 const teamColors: Record<Team, string> = {
   board: "bg-purple-500/10 text-purple-500 hover:bg-purple-500/20",

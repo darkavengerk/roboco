@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { FolderGit2, X } from "lucide-react";
+import { TEAM_LABELS } from "@/lib/labels";
 
 interface ProjectSelectorProps {
   value: string | null;
@@ -23,13 +24,6 @@ interface ProjectSelectorProps {
   disabled?: boolean;
   allowClear?: boolean;
 }
-
-// Team display names for project cells
-const TEAM_LABELS: Partial<Record<Team, string>> = {
-  [Team.BACKEND]: "Backend",
-  [Team.FRONTEND]: "Frontend",
-  [Team.UX_UI]: "UX/UI",
-};
 
 export function ProjectSelector({
   value,

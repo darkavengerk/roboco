@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/ui/copy-button";
 import type { DraftProposal } from "@/lib/api/prompter";
 import type { StartRoute } from "@/hooks/use-prompter";
+import { TEAM_LABELS } from "@/lib/labels";
 
 interface DraftProposalCardProps {
   draft: DraftProposal;
@@ -24,14 +25,13 @@ interface DraftProposalCardProps {
 
 // 0 is the highest priority, 3 the lowest — matches the backend contract.
 const PRIORITY_LABELS: Record<number, string> = {
-  0: "Highest",
-  1: "High",
-  2: "Medium",
-  3: "Low",
+  0: "최우선",
+  1: "높음",
+  2: "보통",
+  3: "낮음",
 };
 
-const cellLabel = (team: string) =>
-  team === "ux_ui" ? "UX/UI" : team.charAt(0).toUpperCase() + team.slice(1);
+const cellLabel = (team: string) => TEAM_LABELS[team] || team;
 
 /** Render the draft as plain markdown text for the copy button, so the CEO can
  *  stash the full spec elsewhere (a safety net until refresh-durability lands). */
