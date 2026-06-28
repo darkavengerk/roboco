@@ -17,6 +17,20 @@
 # Always safe to stack: under real docker each profile is still isolated by the
 # `-p roboco-<profile>` project name.
 services:
+  # Give the RAG ollama the host NVIDIA GPU. Without this it runs CPU-only, and
+  # CPU prefill of a broad query's retrieved context (~2k tokens ≈ 13s, scaling
+  # past the route's 60s cap for top_k=8) makes `rag/query` time out. The host
+  # toolkit + CDI (/etc/cdi/nvidia.yaml) already work (`docker run --gpus all`
+  # succeeds), so this is the only missing piece. ollama auto-offloads to GPU.
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+
   # Pull a LOCAL RAG model instead of glm-5:cloud (no Ollama Cloud key). The
   # `$$` escapes `$` for docker-compose variable substitution (mirrors base).
   ollama-init:
