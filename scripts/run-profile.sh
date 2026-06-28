@@ -3,17 +3,16 @@
 # pins container names + host port 3000 — see profiles/README.md).
 #
 #   scripts/run-profile.sh novel            # up (default action)
-#   scripts/run-profile.sh research up
 #   scripts/run-profile.sh novel down
-#   scripts/run-profile.sh research logs
+#   scripts/run-profile.sh novel logs
 #
 set -euo pipefail
 
 PROFILE="${1:-}"
 ACTION="${2:-up}"
 case "$PROFILE" in
-  research|novel) ;;
-  *) echo "usage: $0 {research|novel} [up|down|logs|build]"; exit 2 ;;
+  novel) ;;
+  *) echo "usage: $0 {novel} [up|down|logs|build]"; exit 2 ;;
 esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
