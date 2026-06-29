@@ -17,6 +17,7 @@ from roboco.db.tables import AgentTable, NotificationTable
 from roboco.foundation.policy.communications import ACK_REQUIRED_BY_TYPE
 from roboco.models import NotificationPriority, NotificationType
 from roboco.models.notification import CreateNotificationParams
+from roboco.services.notification_dedup import all_recipients_recently_notified
 from roboco.utils.converters import require_uuid
 
 if TYPE_CHECKING:
@@ -481,6 +482,25 @@ class NotificationService:
                     to_agents_input=[str(a) for a in params.to_agents],
                     type=self._notification_type_label(params),
                     subject=params.subject[:80],
+                )
+                return
+            # Re-fire guard for loop-prone types: a 60s Redis SET-NX window
+            # coalesces the per-tick re-notify storm the DB dedup below skips
+            # (these types are requires_ack=False). Fail-open on Redis down.
+            if await all_recipients_recently_notified(
+                ntype=params.notification_type,
+                from_agent=from_agent_uuid,
+                recipients=to_agents_uuids,
+                related_task_id=params.related_task_id,
+            ):
+                logger.info(
+                    "Suppressed re-fire notification (loop-prone, recent window)",
+                    from_agent=str(from_agent_uuid),
+                    type=params.notification_type.value,
+                    related_task_id=str(params.related_task_id)
+                    if params.related_task_id is not None
+                    else None,
+                    to_agents=[str(a) for a in to_agents_uuids],
                 )
                 return
             # Purpose-based dedup (CEO directive, 2026-06-10): do NOT create a
