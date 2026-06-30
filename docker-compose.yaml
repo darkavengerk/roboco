@@ -454,7 +454,8 @@ services:
     container_name: roboco-nginx
     restart: unless-stopped
     ports:
-      - "3000:80"
+      # Host entry port; default 3000, overridable per-profile via env.
+      - "${ROBOCO_NGINX_PORT:-3000}:80"
     environment:
       # Rendered into the proxy config by the nginx image's envsubst
       # entrypoint so the human panel authenticates in secure mode. The
